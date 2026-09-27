@@ -68,11 +68,12 @@ def display_frame(frame, height=350, dim_thin=False):
         if pd.api.types.is_bool_dtype(view[col]) or not pd.api.types.is_numeric_dtype(view[col]):
             continue
         low = col.lower()
+        is_delta = "delta" in low or col.startswith("Δ")
         if any(token in low for token in ("profit", "cost", "sales", "gross")):
-            view[col] = view[col].map(lambda x: "—" if pd.isna(x) else (f"${x:+,.2f}" if "delta" in low or "impact" in low else f"${x:,.2f}"))
+            view[col] = view[col].map(lambda x: "—" if pd.isna(x) else (f"${x:+,.2f}" if is_delta or "impact" in low else f"${x:,.2f}"))
         elif "distance" in low or low.endswith("_km"):
-            view[col] = view[col].map(lambda x: "—" if pd.isna(x) else (f"{x:+,.0f} km" if "delta" in low else f"{x:,.0f} km"))
-        elif "delta" in low or "gain" in low:
+            view[col] = view[col].map(lambda x: "—" if pd.isna(x) else (f"{x:+,.0f} km" if is_delta else f"{x:,.0f} km"))
+        elif is_delta or "gain" in low:
             view[col] = view[col].map(lambda x: "—" if pd.isna(x) else f"{x:+,.2f}")
         elif any(token in low for token in ("confidence", "score", "pct", "margin", "stability")):
             if "margin" in low:
