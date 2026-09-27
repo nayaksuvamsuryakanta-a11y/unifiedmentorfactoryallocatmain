@@ -34,7 +34,7 @@ def score_products(df,assumptions=Assumptions,top_n=3,reference_df=None):
         c=pd.DataFrame(candidates); c=c[c.candidate_factory!=current].copy()
         c["lead_gain"]=-c.delta_lead_days; c["profit_gain"]=c.profit_impact
         c["objective"]=(assumptions.speed_weight*_norm(c.lead_gain)+(1-assumptions.speed_weight)*_norm(c.profit_gain))
-        c["score"]=c.objective*np.where(c.capability_gap,1-assumptions.capability_gap_penalty,1)*conf/100
+        c["score"]=c.objective*np.where(c.capability_gap,1-assumptions.capability_gap_penalty,1)*c.confidence/100
         c["sufficient_evidence"]=n>=assumptions.min_orders_for_recommendation
         c["materially_better"]=(c.lead_gain>=assumptions.min_material_days)&(c.profit_impact>=0)
         rows.extend(c.sort_values("score",ascending=False).head(top_n).to_dict("records"))
