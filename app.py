@@ -177,7 +177,7 @@ def factory_map_data():
     ])
 
 
-def factory_map():
+def build_factory_deck():
     map_data = factory_map_data()
     layer = pdk.Layer(
         "ScatterplotLayer",
@@ -191,12 +191,17 @@ def factory_map():
         filled=True,
         pickable=True,
     )
-    deck = pdk.Deck(
+    return pdk.Deck(
         layers=[layer],
         initial_view_state=pdk.ViewState(latitude=39.0, longitude=-98.0, zoom=3, pitch=0),
+        map_provider="carto",
         map_style=MAP_STYLE_URL,
         tooltip={"text": "{factory}"},
     )
+
+
+def factory_map():
+    deck = build_factory_deck()
     st.pydeck_chart(deck, **stretch_width())
     st.caption("Factory markers: 🟠 Lot's O' Nuts · 🔹 Wicked Choccy's · 🟢 Sugar Shack · 🟣 Secret Factory · 🟡 The Other Factory")
 
