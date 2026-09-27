@@ -1,0 +1,44 @@
+{
+  "python_version": "3.14.0",
+  "pandas_version": "3.0.6",
+  "mixed_distance_scoring": {
+    "product_count": 15,
+    "actionable_count": 0,
+    "materiality_only_count": 9,
+    "evidence_only_count": 0,
+    "both_gates_fail_count": 6,
+    "actionable_products": ""
+  },
+  "hand_near_miss_reference": {
+    "products": 15,
+    "actionable": 0,
+    "materiality_only": 9,
+    "both": 6,
+    "closest_materiality_gap_days": -0.180601601075199
+  },
+  "user_context_claimed_counts": {
+    "actionable": 0,
+    "materiality_only": 11,
+    "both": 4
+  },
+  "user_context_claim_matches_saved_hand_table": false,
+  "sanity_check_matches_counts": true,
+  "runtime_closest_materiality_gap_days": -0.18060160107519851,
+  "runtime_top_pick_gates_match_hand_table": true,
+  "runtime_top_picks_match_saved_recommendations": true,
+  "state_only_actionable_candidate_count": 1,
+  "state_only_actionable_candidates": [
+    {
+      "product": "Laffy Taffy",
+      "candidate_factory": "Wicked Choccy's",
+      "orders": 10,
+      "lead_gain": 1.2189866666356914,
+      "profit_impact": 4.443206399887095
+    }
+  ],
+  "state_only_actionable_top_pick_count": 0,
+  "speed_weight_has_five_count": false,
+  "first_five_count_assumption": "freight_speed_km_day=400 (dashboard_slider)",
+  "monte_carlo_iterations_effect": "not swept: it affects compute_kpis uncertainty iterations, not score_products ranking or the gated top-pick recommendation count",
+  "capacity_multiplier_effect": "not swept: it affects joint_optimize capacity constraints, not the per-product recommendation count"
+}
