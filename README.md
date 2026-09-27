@@ -16,6 +16,8 @@ python -m pytest -q
 
 The pipeline reads `Nassau Candy Distributor.csv` beside `run_pipeline.py`, validates and repairs the ship dates, trains the models, runs diagnostics and both optimization modes, and writes CSV/JSON outputs to `artifacts/`, plus `research_paper.md` and `executive_summary.md` at the project root. The dashboard is run with `streamlit run app.py` after the backend artifacts exist.
 
+The dashboard includes the filtered factory simulator, one-move comparison, catalogue and joint-assignment views, risk/route map, and evidence diagnostics. Its near-black palette and Carto dark basemap are configured locally. Monte Carlo draws and per-product choice-stability results are read from saved artifacts so dashboard interactions do not rerun the sensitivity simulation.
+
 ## Geocoding
 
 ZIP/postal centroids are stored in `data/reference/zip_centroids.csv` with source metadata (`pgeocode 0.5.0 / GeoNames postal dataset`). The pipeline reads this static file only and makes no network calls. Unresolved postal codes use the user-supplied state/province centroid table in `config.py`. If rebuilding the reference file, pgeocode is optional and should only be used for that one-time offline acquisition; it is not a runtime dependency. Distances use Haversine great-circle calculations from centroids, not actual carrier routes.

@@ -2,7 +2,7 @@
 
 ## Abstract
 
-This decision-support study tests whether moving a product to another of five factories can plausibly shorten delivery without reducing gross profit. In the supplied sample of **10,045 retained order lines**, shipping mode explains most predictable lead-time variation. The distance ablation changes five-fold R² by only a small amount, and within-mode distance slopes are not statistically significant at the 5% level. The simulated moves remain assumption-driven and the configured evidence/materiality gates produce **1 actionable products**. The analysis therefore supports investigation and measurement, not an unqualified network redesign.
+This decision-support study tests whether moving a product to another of five factories can plausibly shorten delivery without reducing gross profit. In the supplied sample of **10,045 retained order lines**, shipping mode explains most predictable lead-time variation. The distance ablation changes five-fold R² by only a small amount, and within-mode distance slopes are not statistically significant at the 5% level. The simulated moves remain assumption-driven and the configured evidence/materiality gates produce **0 actionable top-ranked products**. The analysis therefore supports investigation and measurement, not an unqualified network redesign.
 
 ## Background and problem
 
@@ -10,7 +10,7 @@ Nassau Candy has five fixed factories and a 15-product catalogue. The operationa
 
 ## Data issues and preparation
 
-The naive `(Ship Date − Order Date)` calculation is invalid: **904 / 1320.75 / 1642 days (min/mean/max)**, with years in ship dates later than the order years. The month/day values parse plausibly. We reconstruct ship year from the order year, roll to the next year if month/day precedes the order date, then subtract the observed minimum residual gap of **173 days**. This data-derived offset avoids guessing a constant. Repaired mode means are {'First Class': 2.84, 'Same Day': 0.63, 'Second Class': 3.87, 'Standard Class': 5.63}, ordered from Same Day through Standard Class; every repaired row is nonnegative and below 30 days.
+The naive `(Ship Date − Order Date)` calculation is invalid: **904 / 1320.84 / 1642 days (min/mean/max)**, with years in ship dates later than the order years. The month/day values parse plausibly. We reconstruct ship year from the order year, roll to the next year if month/day precedes the order date, then subtract the observed minimum residual gap of **173 days**. This data-derived offset avoids guessing a constant. Repaired mode means are {'Same Day': 0.63, 'First Class': 2.84, 'Second Class': 3.87, 'Standard Class': 5.63}, ordered from Same Day through Standard Class; every repaired row is nonnegative and below 30 days.
 
 Right-tail financial outliers use a **3× IQR fence**, wider than the textbook 1.5× fence to retain legitimate bulk orders. Lead time is not trimmed. Order-date calendar variables are derived. Ship mode is encoded ordinally and one-hot. Imputation, scaling, and categorical encoding are fitted within scikit-learn pipelines after each split.
 
@@ -107,6 +107,6 @@ Historical lead time reflects ship mode and observed order behavior, not isolate
 
 ## Recommendation table
 
-| product | candidate_factory | lead_gain | profit_impact | confidence |
-| --- | --- | --- | --- | --- |
-| Laffy Taffy | Wicked Choccy's | 1.23 | 4.47 | 38.16 |
+| Current decision | Recommendation | Evidence |
+|---|---|---|
+| Retain current factory assignments | No move currently clears both evidence and material-improvement gates | No actionable products at configured thresholds |

@@ -6,7 +6,7 @@ def _norm(s):
     lo,hi=s.min(),s.max()
     return (s-lo)/(hi-lo) if hi>lo else pd.Series(.5,index=s.index)
 
-def score_products(df,assumptions=Assumptions,top_n=3):
+def score_products(df,assumptions=Assumptions,top_n=3,reference_df=None):
     rows=[]
     for product,g in df.groupby("product_name"):
         current=PRODUCT_FACTORY.get(product)
@@ -16,7 +16,10 @@ def score_products(df,assumptions=Assumptions,top_n=3):
         evidence=min(1,np.log1p(n)/np.log1p(100)); stability=1/(1+max(cv,0))
         base_conf=100*(.65*evidence+.35*stability)
         division=g.division.mode().iloc[0]
-        prod_div=df[df.division==division].groupby("current_factory").product_name.nunique()
+        # Filtered what-if views can use a product/region/mode subset for observed
+        # baseline metrics, while capability history must still use all orders.
+        history=reference_df if reference_df is not None else df
+        prod_div=history[history.division==division].groupby("current_factory").product_name.nunique()
         current_dist=float(np.average(g[f"distance_{current}"],weights=g.units.clip(lower=1)))
         candidates=[]
         for factory in FACTORY_COORDS:

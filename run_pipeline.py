@@ -6,7 +6,7 @@ import sys
 import numpy as np
 import pandas as pd
 
-from config import ARTIFACT_DIR, Assumptions, FACTORY_COORDS
+from config import ARTIFACT_DIR, Assumptions, FACTORY_COORDS, SHIP_MODE_RANK, DATA_PATH
 from data_prep import prepare_data
 from models import train_models
 from clustering import cluster_routes
@@ -37,15 +37,21 @@ def write_reports(df, metrics, temporal, diagnostic, routes, recommendations,
                            - dist_cols.set_index("geocoding_distance").cv_r2_mean["State-only"])
     else:
         distance_effect = float("nan")
-    actionable = recommendations[
-        recommendations.sufficient_evidence & recommendations.materially_better
-    ] if len(recommendations) else recommendations
     per_product = recommendations.sort_values("score", ascending=False).drop_duplicates("product")
+    # Match the KPI contract: only the single highest-ranked choice per product
+    # can contribute; a lower-ranked alternative does not make that product actionable.
+    actionable = per_product[
+        per_product.sufficient_evidence & per_product.materially_better
+    ] if len(per_product) else per_product
     joint_map = assignment.set_index("product").factory.to_dict()
     differs = [(r.product, r.candidate_factory, joint_map.get(r.product))
                for r in per_product.itertuples() if joint_map.get(r.product) != r.candidate_factory]
     precise = float((df.geo_precision == "ZIP").mean() * 100)
     state = 100 - precise
+    raw_dates = pd.read_csv(DATA_PATH, usecols=["Order Date", "Ship Date"])
+    raw_order_all = pd.to_datetime(raw_dates["Order Date"], dayfirst=True)
+    raw_ship_all = pd.to_datetime(raw_dates["Ship Date"], dayfirst=True)
+    naive_gap = (raw_ship_all - raw_order_all).dt.days
     raw_ship = pd.to_datetime(df.ship_date_raw, dayfirst=True)
     rebuilt = pd.to_datetime({"year": df.order_date.dt.year, "month": raw_ship.dt.month, "day": raw_ship.dt.day}, errors="coerce")
     invalid = rebuilt.isna()
@@ -53,7 +59,6 @@ def write_reports(df, metrics, temporal, diagnostic, routes, recommendations,
         rebuilt.loc[invalid] = pd.to_datetime({"year": df.order_date.dt.year[invalid] + 1, "month": raw_ship.dt.month[invalid], "day": raw_ship.dt.day[invalid]}, errors="coerce")
     rebuilt.loc[rebuilt < df.order_date] += pd.DateOffset(years=1)
     residual_offset = int((rebuilt - df.order_date).dt.days.min())
-    naive_gap = (raw_ship - df.order_date).dt.days
     mc_summary = mc.lead_time_reduction_pct.describe(percentiles=[.05, .5, .95])
     recommendation_rows = (actionable.sort_values("score", ascending=False)
                            .drop_duplicates("product").head(12))
@@ -65,7 +70,7 @@ def write_reports(df, metrics, temporal, diagnostic, routes, recommendations,
 
 ## Abstract
 
-This decision-support study tests whether moving a product to another of five factories can plausibly shorten delivery without reducing gross profit. In the supplied sample of **{len(df):,} retained order lines**, shipping mode explains most predictable lead-time variation. The distance ablation changes five-fold R² by only a small amount, and within-mode distance slopes are not statistically significant at the 5% level. The simulated moves remain assumption-driven and the configured evidence/materiality gates produce **{actionable['product'].nunique() if len(actionable) else 0} actionable products**. The analysis therefore supports investigation and measurement, not an unqualified network redesign.
+This decision-support study tests whether moving a product to another of five factories can plausibly shorten delivery without reducing gross profit. In the supplied sample of **{len(df):,} retained order lines**, shipping mode explains most predictable lead-time variation. The distance ablation changes five-fold R² by only a small amount, and within-mode distance slopes are not statistically significant at the 5% level. The simulated moves remain assumption-driven and the configured evidence/materiality gates produce **{actionable['product'].nunique() if len(actionable) else 0} actionable top-ranked products**. The analysis therefore supports investigation and measurement, not an unqualified network redesign.
 
 ## Background and problem
 
@@ -73,7 +78,7 @@ Nassau Candy has five fixed factories and a 15-product catalogue. The operationa
 
 ## Data issues and preparation
 
-The naive `(Ship Date − Order Date)` calculation is invalid: **{naive_gap.min()} / {naive_gap.mean():.2f} / {naive_gap.max()} days (min/mean/max)**, with years in ship dates later than the order years. The month/day values parse plausibly. We reconstruct ship year from the order year, roll to the next year if month/day precedes the order date, then subtract the observed minimum residual gap of **{residual_offset} days**. This data-derived offset avoids guessing a constant. Repaired mode means are {df.groupby('ship_mode').lead_time_days.mean().round(2).to_dict()}, ordered from Same Day through Standard Class; every repaired row is nonnegative and below 30 days.
+The naive `(Ship Date − Order Date)` calculation is invalid: **{naive_gap.min()} / {naive_gap.mean():.2f} / {naive_gap.max()} days (min/mean/max)**, with years in ship dates later than the order years. The month/day values parse plausibly. We reconstruct ship year from the order year, roll to the next year if month/day precedes the order date, then subtract the observed minimum residual gap of **{residual_offset} days**. This data-derived offset avoids guessing a constant. Repaired mode means are {df.groupby('ship_mode').lead_time_days.mean().reindex(SHIP_MODE_RANK).round(2).to_dict()}, ordered from Same Day through Standard Class; every repaired row is nonnegative and below 30 days.
 
 Right-tail financial outliers use a **3× IQR fence**, wider than the textbook 1.5× fence to retain legitimate bulk orders. Lead time is not trimmed. Order-date calendar variables are derived. Ship mode is encoded ordinally and one-hot. Imputation, scaling, and categorical encoding are fitted within scikit-learn pipelines after each split.
 
@@ -138,7 +143,7 @@ Historical lead time reflects ship mode and observed order behavior, not isolate
 
 | Decision | Recommendation | Why |
 |---|---|---|
-| Factory changes | Keep current assignments for now | {actionable['product'].nunique() if len(actionable) else 0} products met both the evidence and material-improvement thresholds |
+| Factory changes | Keep current assignments for now | {actionable['product'].nunique() if len(actionable) else 0} top-ranked moves met both the evidence and material-improvement thresholds |
 | Next step | Pilot selected routes with actual carrier and invoice data | Current distance-to-time and freight-cost conversions are assumptions |
 | Data improvement | Record carrier, origin, destination, ship date, delivery date, and freight charge | Enables direct measurement of transit and cost by route |
 | Risk review | Investigate the highest-exposure slow routes in `artifacts/routes.csv` | Route profiles identify operational lanes for measurement |
@@ -187,8 +192,22 @@ def main():
     print(f"\nActionable KPI estimates (500 order-bootstrap resamples):\n{json.dumps(kpis, indent=2)}")
     baseline_choices = score_products(df, top_n=1).set_index("product").candidate_factory.to_dict()
     all_products = sorted(set().union(*(c.keys() for c in choices))) if choices else []
-    stability = {p: np.mean([c.get(p) == baseline_choices.get(p) for c in choices]) for p in all_products}
-    mean_stability = float(100 * np.mean(list(stability.values()))) if stability else 0.0
+    stability_rows = []
+    for product in all_products:
+        draws = [choice[product] for choice in choices if product in choice]
+        stability_rows.append({
+            "product": product,
+            "default_factory": baseline_choices.get(product),
+            "choice_agreement_pct": 100 * float(np.mean([factory == baseline_choices.get(product) for factory in draws])) if draws else 0.0,
+            "distinct_factories": len(set(draws)),
+        })
+    stability_frame = pd.DataFrame(stability_rows)
+    stability_frame.to_csv(ARTIFACT_DIR / "sensitivity_stability.csv", index=False)
+    mean_stability = float(stability_frame.choice_agreement_pct.mean()) if len(stability_frame) else 0.0
+    (ARTIFACT_DIR / "sensitivity_summary.json").write_text(json.dumps({
+        "iterations": len(mc),
+        "mean_choice_agreement_pct": mean_stability,
+    }, indent=2), encoding="utf-8")
     mc_summary = mc.lead_time_reduction_pct.describe(percentiles=[.05, .5, .95])
     print(f"\nMonte Carlo: {len(mc)} draws; lead-reduction KPI mean={mc_summary['mean']:.2f}%, median={mc_summary['50%']:.2f}%, 5th-95th=[{mc_summary['5%']:.2f}%, {mc_summary['95%']:.2f}%]; mean factory-choice agreement with default assumptions={mean_stability:.1f}%.")
     write_reports(df, model_report, temporal, diagnostic, routes, recommendations,

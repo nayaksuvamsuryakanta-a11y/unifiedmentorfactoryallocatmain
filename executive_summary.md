@@ -4,7 +4,7 @@
 
 | Decision | Recommendation | Why |
 |---|---|---|
-| Factory changes | Keep current assignments for now | 1 products met both the evidence and material-improvement thresholds |
+| Factory changes | Keep current assignments for now | 0 top-ranked moves met both the evidence and material-improvement thresholds |
 | Next step | Pilot selected routes with actual carrier and invoice data | Current distance-to-time and freight-cost conversions are assumptions |
 | Data improvement | Record carrier, origin, destination, ship date, delivery date, and freight charge | Enables direct measurement of transit and cost by route |
 | Risk review | Investigate the highest-exposure slow routes in `artifacts/routes.csv` | Route profiles identify operational lanes for measurement |
