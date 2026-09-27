@@ -1,0 +1,26 @@
+{
+  "point": {
+    "lead_time_reduction_pct": 0.0,
+    "profit_stability_pct": 0.0,
+    "confidence": 0.0,
+    "coverage_pct": 0.0
+  },
+  "ci": {
+    "lead_time_reduction_pct": [
+      0.0,
+      0.0
+    ],
+    "profit_stability_pct": [
+      0.0,
+      0.0
+    ],
+    "confidence": [
+      0.0,
+      0.0
+    ],
+    "coverage_pct": [
+      0.0,
+      0.0
+    ]
+  }
+}

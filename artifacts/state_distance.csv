@@ -1,0 +1,4 @@
+comparison,cv_r2_mean
+Ship mode + state dummies,0.6275617475681383
+Ship mode + distance,0.6258286666902814
+Ship mode + state + distance,0.6282077969458246
