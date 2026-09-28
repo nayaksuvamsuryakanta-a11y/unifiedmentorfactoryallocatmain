@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from data_prep import repair_ship_dates, haversine_km, resolve_customer_centroid, prepare_data
 from config import STATE_CENTROIDS, FACTORY_COORDS, PRODUCT_FACTORY, DATA_PATH
-from simulation import compute_kpis, joint_optimize
+from simulation import compute_kpis, joint_optimize, score_products
 
 def test_date_repair_is_nonnegative_small_and_mode_ordered():
     orders=pd.Series(pd.to_datetime(["2024-01-01"]*4))
@@ -42,7 +42,7 @@ def test_joint_optimizer_capacity_and_one_factory_per_product():
             rows.append({"product":p,"candidate_factory":f,"score":1.0 if f==PRODUCT_FACTORY[p] else .5})
     recs=pd.DataFrame(rows)
     orders=pd.DataFrame({"product_name":products,"units":[10,10],"current_factory":[PRODUCT_FACTORY[p] for p in products]})
-    result=joint_optimize(recs,orders)
+    result=joint_optimize(recs,orders,gated=False)
     assert result["product"].nunique()==len(products) and len(result)==len(products)
     limits=orders.groupby("current_factory").units.sum().reindex(FACTORY_COORDS,fill_value=0)*1.5
     used=result.groupby("factory").units.sum().reindex(FACTORY_COORDS,fill_value=0)
@@ -79,3 +79,51 @@ def test_bootstrap_bounds_contain_point():
     rec=pd.DataFrame([dict(product="p",candidate_factory="f",sufficient_evidence=True,materially_better=True,lead_gain=2.,baseline_lead_days=5.,profit_impact=1.,confidence=60.,orders=20,score=1.)])
     result=compute_kpis(rec,1,iterations=100)
     for key,value in result["point"].items(): assert result["ci"][key][0]<=value<=result["ci"][key][1]
+
+def _scoring_fixture():
+    product=list(PRODUCT_FACTORY)[0]
+    rows=[]
+    for i in range(10):
+        row={"product_name":product,"order_id":i,"units":1,"lead_time_days":2+i%2,"gross_profit":10.,"division":"Candy","current_factory":PRODUCT_FACTORY[product]}
+        for j,factory in enumerate(FACTORY_COORDS): row[f"distance_{factory}"]=100.+j*300.
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+def _assumptions(weight):
+    from types import SimpleNamespace
+    return SimpleNamespace(freight_speed_km_day=900.,freight_cost_per_unit_per_1000km=.15,
+        capability_gap_penalty=.2,min_orders_for_recommendation=10,min_material_days=1.,
+        capacity_multiplier=1.5,speed_weight=weight,monte_carlo_iterations=1)
+
+def test_score_products_keeps_one_incumbent_row_and_invariant_weights():
+    frame=_scoring_fixture()
+    speed=score_products(frame,_assumptions(1.),top_n=len(FACTORY_COORDS))
+    profit=score_products(frame,_assumptions(0.),top_n=len(FACTORY_COORDS))
+    assert speed.is_incumbent.sum()==1
+    assert speed[speed.is_incumbent].candidate_factory.iloc[0]==PRODUCT_FACTORY[frame.product_name.iloc[0]]
+    speed_order=speed[~speed.is_incumbent].sort_values("score",ascending=False).candidate_factory.tolist()
+    profit_order=profit[~profit.is_incumbent].sort_values("score",ascending=False).candidate_factory.tolist()
+    assert speed_order==profit_order
+    a=speed.set_index("candidate_factory").score.sort_index().to_numpy()
+    b=profit.set_index("candidate_factory").score.sort_index().to_numpy()
+    assert np.allclose(a,b)
+
+def test_gated_joint_optimizer_keeps_incumbents_when_no_move_is_material():
+    frame=_scoring_fixture()
+    recs=score_products(frame,_assumptions(.5),top_n=len(FACTORY_COORDS))
+    recs["materially_better"]=False
+    result=joint_optimize(recs,frame,gated=True)
+    assert result.factory.tolist()==[PRODUCT_FACTORY[frame.product_name.iloc[0]]]
+
+def test_joint_optimizer_capacity_respected_in_both_modes():
+    products=list(PRODUCT_FACTORY)[:2]
+    rows=[{"product":p,"candidate_factory":f,"score":1. if f==PRODUCT_FACTORY[p] else .5,
+           "is_incumbent":f==PRODUCT_FACTORY[p],"sufficient_evidence":True,"materially_better":True}
+          for p in products for f in FACTORY_COORDS]
+    recs=pd.DataFrame(rows)
+    orders=pd.DataFrame({"product_name":products,"units":[10,10],"current_factory":[PRODUCT_FACTORY[p] for p in products]})
+    for gated in (True,False):
+        result=joint_optimize(recs,orders,gated=gated)
+        limits=orders.groupby("current_factory").units.sum().reindex(FACTORY_COORDS,fill_value=0)*1.5
+        used=result.groupby("factory").units.sum().reindex(FACTORY_COORDS,fill_value=0)
+        assert (used<=limits+1e-9).all()

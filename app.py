@@ -10,7 +10,7 @@ import pydeck as pdk
 import streamlit as st
 
 from config import ARTIFACT_DIR, FACTORY_COORDS, PRODUCT_FACTORY, Assumptions
-from simulation import score_products, joint_optimize
+from simulation import score_products
 
 ROOT = Path(__file__).resolve().parent
 BG = "#0e0e0e"
@@ -112,30 +112,7 @@ def scenario_rows(subset, all_orders, assumptions):
     )
     if all_candidates.empty:
         return all_candidates
-    first = all_candidates.iloc[0]
-    incumbent = pd.DataFrame([{
-        "product": first["product"],
-        "current_factory": first.current_factory,
-        "candidate_factory": first.current_factory,
-        "orders": first.orders,
-        "units": first.units,
-        "baseline_lead_days": first.baseline_lead_days,
-        "baseline_profit": first.baseline_profit,
-        "current_distance_km": first.current_distance_km,
-        "candidate_distance_km": first.current_distance_km,
-        "delta_distance_km": 0.0,
-        "delta_lead_days": 0.0,
-        "new_lead_days": first.baseline_lead_days,
-        "delta_cost": 0.0,
-        "profit_impact": 0.0,
-        "new_profit": first.baseline_profit,
-        "confidence": min(99.0, float(first.confidence) + (100 * assumptions.capability_gap_penalty if first.capability_gap else 0)),
-        "capability_gap": False,
-        "sufficient_evidence": first.orders >= assumptions.min_orders_for_recommendation,
-        "materially_better": False,
-        "score": 0.0,
-    }])
-    return pd.concat([incumbent, all_candidates], ignore_index=True, sort=False)
+    return all_candidates
 
 
 def top_factory_chart(scenarios, current_factory):
@@ -297,6 +274,7 @@ def main():
         speed = st.slider("Freight speed (assumed km/day)", 400, 1600, int(Assumptions.freight_speed_km_day), 50)
         cost = st.slider("Freight cost (assumed /unit/1,000 km)", 0.05, 0.30, float(Assumptions.freight_cost_per_unit_per_1000km), 0.01, format="%.2f")
         weight = st.slider("Speed vs profit priority", 0.0, 1.0, float(Assumptions.speed_weight), 0.05, format="%.2f")
+        st.caption("Under the current distance-only freight model, speed and profit gains are perfectly correlated, so this control does not change rankings.")
 
     assumptions = make_assumptions(speed, cost, weight)
     subset = filter_orders(orders, product, region, ship_mode)
@@ -366,11 +344,16 @@ def main():
         actionable_only = st.checkbox("Actionable only", value=False)
         if mode == "Per-product best option":
             candidates = score_products(orders, assumptions=assumptions, top_n=len(FACTORY_COORDS))
+            candidates = candidates[~candidates.is_incumbent]
             recommendations = candidates.sort_values("score", ascending=False).drop_duplicates("product")
             view = add_recommendation_status(recommendations)
         else:
             candidates = score_products(orders, assumptions=assumptions, top_n=len(FACTORY_COORDS))
-            assignment = joint_optimize(candidates, orders, assumptions)
+            exploratory = st.toggle("Exploratory (ignores evidence and materiality gates)", value=False)
+            if exploratory:
+                st.warning("Exploratory assignment ignores evidence and materiality gates; treat moves as ranking scenarios only.")
+            artifact = "joint_assignment_exploratory.csv" if exploratory else "joint_assignment_gated.csv"
+            assignment = load_table(artifact)
             view = assignment.merge(candidates, left_on=["product", "factory"], right_on=["product", "candidate_factory"], how="left", suffixes=("_assigned", "_candidate"))
             view["units"] = view["units_assigned"].fillna(view["units_candidate"])
             view["candidate_factory"] = view.factory
@@ -396,6 +379,7 @@ def main():
     with tab_risk:
         st.subheader("Operational risks and route exposure")
         candidates = score_products(orders, assumptions=assumptions, top_n=len(FACTORY_COORDS))
+        candidates = candidates[~candidates.is_incumbent]
         gaps = candidates[candidates.capability_gap].copy()
         if len(gaps):
             gaps["status"] = "⚠️ Capability gap"

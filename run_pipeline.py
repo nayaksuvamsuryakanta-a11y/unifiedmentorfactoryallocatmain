@@ -25,7 +25,8 @@ def markdown_table(frame):
 
 
 def write_reports(df, metrics, temporal, diagnostic, routes, recommendations,
-                  assignment, kpis, mc, choice_stability, solver):
+                  assignment, exploratory_assignment, exploratory_moves, exploratory_forced,
+                  kpis, mc, choice_stability, solver):
     best = metrics.sort_values("r2", ascending=False).iloc[0]
     temporal_table = pd.DataFrame(temporal).T
     temporal_best = temporal_table.r2.idxmax() if not temporal_table.empty else "unavailable"
@@ -37,13 +38,14 @@ def write_reports(df, metrics, temporal, diagnostic, routes, recommendations,
                            - dist_cols.set_index("geocoding_distance").cv_r2_mean["State-only"])
     else:
         distance_effect = float("nan")
-    per_product = recommendations.sort_values("score", ascending=False).drop_duplicates("product")
+    per_product = recommendations[~recommendations.is_incumbent].sort_values("score", ascending=False).drop_duplicates("product")
     # Match the KPI contract: only the single highest-ranked choice per product
     # can contribute; a lower-ranked alternative does not make that product actionable.
     actionable = per_product[
         per_product.sufficient_evidence & per_product.materially_better
     ] if len(per_product) else per_product
     joint_map = assignment.set_index("product").factory.to_dict()
+    incumbents = df.groupby("product_name").current_factory.agg(lambda s:s.dropna().mode().iloc[0] if s.notna().any() else None)
     differs = [(r.product, r.candidate_factory, joint_map.get(r.product))
                for r in per_product.itertuples() if joint_map.get(r.product) != r.candidate_factory]
     precise = float((df.geo_precision == "ZIP").mean() * 100)
@@ -164,13 +166,15 @@ def main():
     routes = cluster_routes(df)
     recommendations = score_products(df, top_n=3)
     all_candidates = score_products(df, top_n=len(FACTORY_COORDS))
-    assignment = joint_optimize(all_candidates, df)
+    assignment = joint_optimize(all_candidates, df, gated=True)
+    exploratory_assignment = joint_optimize(all_candidates, df, gated=False)
     kpis = compute_kpis(recommendations, df.product_name.nunique(), order_frame=df)
     mc, choices = sensitivity(df, Assumptions.monte_carlo_iterations)
     for name, obj in [
         ("model_metrics", model_report), ("permutation_importance", importance),
         ("routes", routes), ("recommendations", recommendations),
-        ("joint_assignment", assignment), ("ablation", diagnostic["ablation"]),
+        ("joint_assignment", assignment), ("joint_assignment_gated", assignment),
+        ("joint_assignment_exploratory", exploratory_assignment), ("ablation", diagnostic["ablation"]),
         ("mode_slopes", diagnostic["mode_slopes"]),
         ("distance_residual_bins", diagnostic["residual_distance"]),
         ("state_distance", diagnostic["state_distance"]), ("sensitivity", mc),
@@ -178,7 +182,7 @@ def main():
         obj.to_csv(ARTIFACT_DIR / f"{name}.csv", index=False)
     (ARTIFACT_DIR / "temporal_metrics.json").write_text(json.dumps(temporal, indent=2), encoding="utf-8")
     (ARTIFACT_DIR / "kpis.json").write_text(json.dumps(kpis, indent=2), encoding="utf-8")
-    individual = recommendations.sort_values("score", ascending=False).drop_duplicates("product").set_index("product").candidate_factory.to_dict()
+    individual = recommendations[~recommendations.is_incumbent].sort_values("score", ascending=False).drop_duplicates("product").set_index("product").candidate_factory.to_dict()
     joint = assignment.set_index("product").factory.to_dict()
     differences = [(p, factory, joint.get(p)) for p, factory in individual.items() if joint.get(p) != factory]
     print("\nModel held-out and five-fold CV metrics:\n", model_report.to_string(index=False))
@@ -188,9 +192,16 @@ def main():
     print("\nWithin-mode distance slopes and p-values:\n", diagnostic["mode_slopes"].to_string(index=False))
     print("\nShip-mode-controlled state/distance proxy comparison:\n", diagnostic["state_distance"].to_string(index=False))
     print(f"\nJoint solver path: {assignment.attrs.get('solver', 'unknown')}")
-    print(f"Joint assignment differs from the independent top pick for {len(differences)} products: {differences}")
+    incumbents = df.groupby("product_name").current_factory.agg(lambda s:s.dropna().mode().iloc[0] if s.notna().any() else None)
+    gated_moves = int((assignment.factory != assignment.product.map(incumbents)).sum())
+    exploratory_moves = int((exploratory_assignment.factory != exploratory_assignment.product.map(incumbents)).sum())
+    highest = all_candidates.sort_values("score", ascending=False).drop_duplicates("product").set_index("product").candidate_factory
+    exploratory_forced = int((exploratory_assignment.set_index("product").factory != highest).sum())
+    print(f"Gated joint assignment moves off incumbent: {gated_moves} products")
+    print(f"Exploratory joint assignment moves off incumbent: {exploratory_moves} products; differs from own highest-scoring option: {exploratory_forced}")
     print(f"\nActionable KPI estimates (500 order-bootstrap resamples):\n{json.dumps(kpis, indent=2)}")
-    baseline_choices = score_products(df, top_n=1).set_index("product").candidate_factory.to_dict()
+    baseline_choices = score_products(df, top_n=1)
+    baseline_choices = baseline_choices[~baseline_choices.is_incumbent].set_index("product").candidate_factory.to_dict()
     all_products = sorted(set().union(*(c.keys() for c in choices))) if choices else []
     stability_rows = []
     for product in all_products:
@@ -211,7 +222,8 @@ def main():
     mc_summary = mc.lead_time_reduction_pct.describe(percentiles=[.05, .5, .95])
     print(f"\nMonte Carlo: {len(mc)} draws; lead-reduction KPI mean={mc_summary['mean']:.2f}%, median={mc_summary['50%']:.2f}%, 5th-95th=[{mc_summary['5%']:.2f}%, {mc_summary['95%']:.2f}%]; mean factory-choice agreement with default assumptions={mean_stability:.1f}%.")
     write_reports(df, model_report, temporal, diagnostic, routes, recommendations,
-                  assignment, kpis, mc, mean_stability, assignment.attrs.get("solver", "unknown"))
+                  assignment, exploratory_assignment, exploratory_moves, exploratory_forced,
+                  kpis, mc, mean_stability, assignment.attrs.get("solver", "unknown"))
     print(f"Reports written: {ARTIFACT_DIR.parent / 'research_paper.md'}, {ARTIFACT_DIR.parent / 'executive_summary.md'}")
     print(f"Artifacts saved to {ARTIFACT_DIR}")
 

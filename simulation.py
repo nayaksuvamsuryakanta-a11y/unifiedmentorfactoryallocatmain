@@ -30,29 +30,43 @@ def score_products(df,assumptions=Assumptions,top_n=3,reference_df=None):
             cap_gap=factory!=current and prod_div.get(factory,0)==0
             # Confidence is evidence/stability minus the explicit capability-gap penalty.
             conf=max(0,min(99,base_conf-(100*assumptions.capability_gap_penalty if cap_gap else 0)))
-            candidates.append(dict(product=product,current_factory=current,candidate_factory=factory,orders=n,units=total_units,baseline_lead_days=baseline,baseline_profit=base_profit,current_distance_km=current_dist,candidate_distance_km=dist,delta_distance_km=delta_dist,delta_lead_days=delta_lead,new_lead_days=baseline+delta_lead,delta_cost=delta_cost,profit_impact=-delta_cost,new_profit=base_profit-delta_cost,confidence=conf,capability_gap=bool(cap_gap),evidence_score=evidence,stability_score=stability))
-        c=pd.DataFrame(candidates); c=c[c.candidate_factory!=current].copy()
+            candidates.append(dict(product=product,current_factory=current,candidate_factory=factory,is_incumbent=factory==current,orders=n,units=total_units,baseline_lead_days=baseline,baseline_profit=base_profit,current_distance_km=current_dist,candidate_distance_km=dist,delta_distance_km=delta_dist,delta_lead_days=delta_lead,new_lead_days=baseline+delta_lead,delta_cost=delta_cost,profit_impact=-delta_cost,new_profit=base_profit-delta_cost,confidence=conf,capability_gap=bool(cap_gap),evidence_score=evidence,stability_score=stability))
+        c=pd.DataFrame(candidates)
         c["lead_gain"]=-c.delta_lead_days; c["profit_gain"]=c.profit_impact
+        # For each product, both gains are positive multiples of the same distance-change vector;
+        # min-max normalization therefore makes the speed_weight blend rank-invariant.
         c["objective"]=(assumptions.speed_weight*_norm(c.lead_gain)+(1-assumptions.speed_weight)*_norm(c.profit_gain))
         c["score"]=c.objective*np.where(c.capability_gap,1-assumptions.capability_gap_penalty,1)*c.confidence/100
         c["sufficient_evidence"]=n>=assumptions.min_orders_for_recommendation
         c["materially_better"]=(c.lead_gain>=assumptions.min_material_days)&(c.profit_impact>=0)
-        rows.extend(c.sort_values("score",ascending=False).head(top_n).to_dict("records"))
+        c["risk_score"]=0.0
+        c["risk_reduction"]=0.0
+        selected=pd.concat([c[~c.is_incumbent].sort_values("score",ascending=False).head(top_n),c[c.is_incumbent]])
+        rows.extend(selected.to_dict("records"))
     return pd.DataFrame(rows)
 
-def joint_optimize(recs,df,assumptions=Assumptions):
+def joint_optimize(recs,df,assumptions=Assumptions,gated=True):
     """Solve one assignment per product under unit capacities; PuLP then SciPy MILP."""
     products=sorted(df.product_name.unique()); factories=list(FACTORY_COORDS)
     units=df.groupby("product_name").units.sum().to_dict()
     capacity=df.groupby("current_factory").units.sum().reindex(factories,fill_value=0)*assumptions.capacity_multiplier
     table=recs.sort_values("score",ascending=False).drop_duplicates(["product","candidate_factory"])
+    if "is_incumbent" not in table:
+        table["is_incumbent"]=table.apply(lambda r: r.candidate_factory==PRODUCT_FACTORY.get(r.product),axis=1)
+    if gated:
+        sufficient=table.sufficient_evidence.fillna(True) if "sufficient_evidence" in table else pd.Series(True,index=table.index)
+        material=table.materially_better.fillna(True) if "materially_better" in table else pd.Series(True,index=table.index)
+        table=table[table.is_incumbent.fillna(False) | (sufficient & material)]
     options={(r.product,r.candidate_factory):float(r.score) for r in table.itertuples()}
     # incumbent always available with neutral objective
     incumbents=df.groupby("product_name").current_factory.agg(lambda s:s.dropna().mode().iloc[0] if s.notna().any() else None).to_dict()
     for p in products:
         incumbent=incumbents.get(p) or PRODUCT_FACTORY.get(p)
         if incumbent is None: raise ValueError(f"No incumbent factory configured for product {p!r}")
-        options.setdefault((p,incumbent),0.0)
+        incumbent_row=table[(table.product==p)&(table.candidate_factory==incumbent)]
+        incumbent_score=float(incumbent_row.score.iloc[0]) if not incumbent_row.empty else 0.0
+        # options.setdefault((p,incumbent),0.0)  # Fallback only for legacy input without incumbent rows.
+        options.setdefault((p,incumbent),incumbent_score)
     try:
         import pulp
         prob=pulp.LpProblem("factory_assignment",pulp.LpMaximize)
@@ -73,13 +87,14 @@ def joint_optimize(recs,df,assumptions=Assumptions):
         if not result.success: raise RuntimeError(f"PuLP failed ({exc}); SciPy MILP failed: {result.message}")
         selected=[keys[i] for i,v in enumerate(result.x) if v>.5]; solver=f"SciPy MILP fallback (PuLP unavailable/failed: {exc})"
     assignment=pd.DataFrame([{"product":p,"factory":f,"units":units[p]} for p,f in selected])
-    assignment.attrs["solver"]=solver; assignment.attrs["capacity"]=capacity.to_dict()
+    assignment.attrs["solver"]=solver; assignment.attrs["capacity"]=capacity.to_dict(); assignment.attrs["gated"]=gated
     return assignment
 
 def compute_kpis(recs,products,iterations=500,seed=SEED,order_frame=None,assumptions=Assumptions):
     cols=["product","candidate_factory","sufficient_evidence","materially_better","lead_gain","profit_impact","confidence","orders"]
     if recs is None or recs.empty: recs=pd.DataFrame(columns=cols)
-    top=recs.sort_values("score",ascending=False).drop_duplicates("product") if "score" in recs else recs
+    moves=recs[~recs.is_incumbent.fillna(False)] if "is_incumbent" in recs else recs
+    top=moves.sort_values("score",ascending=False).drop_duplicates("product") if "score" in moves else moves
     actionable=top[top.sufficient_evidence.fillna(False)&top.materially_better.fillna(False)] if len(top) else top
     catalogue=max(int(products),1)
     def calc(sample):
@@ -117,6 +132,7 @@ def sensitivity(df,iterations=300):
     for i in range(iterations):
         a=type("Draw",(object,),dict(vars(Assumptions)))
         a.freight_speed_km_day=float(rng.uniform(400,1600)); a.freight_cost_per_unit_per_1000km=float(rng.uniform(.05,.30))
-        rec=score_products(df,a,top_n=1); k=compute_kpis(rec,df.product_name.nunique(),iterations=0,order_frame=df,assumptions=a)["point"]
-        results.append({"iteration":i,**k}); choices.append(rec.set_index("product").candidate_factory.to_dict() if len(rec) else {})
+        rec=score_products(df,a,top_n=1); moves=rec[~rec.is_incumbent]
+        k=compute_kpis(rec,df.product_name.nunique(),iterations=0,order_frame=df,assumptions=a)["point"]
+        results.append({"iteration":i,**k}); choices.append(moves.set_index("product").candidate_factory.to_dict() if len(moves) else {})
     return pd.DataFrame(results), choices
