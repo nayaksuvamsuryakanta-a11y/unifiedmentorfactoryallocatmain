@@ -34,3 +34,15 @@ def cluster_routes(df,min_orders=10):
     lanes["exposure"]=(lanes[["mean_lead","p90_lead"]].max(axis=1)-avg).clip(lower=0)*lanes.order_count
     lanes["selected_k"]=chosen_k; lanes["silhouette_score"]=chosen_silhouette
     return lanes.sort_values("exposure",ascending=False)
+
+def congested_region_products(df):
+    """Find region/product pairs with unusually high volume and above-average lead."""
+    lanes=df.groupby(["region","product_name"],dropna=False).agg(
+        order_count=("order_id","nunique"),mean_lead=("lead_time_days","mean"),
+        p90_lead=("lead_time_days",lambda x:x.quantile(.9))).reset_index()
+    volume_cutoff=float(lanes.order_count.quantile(.75)) if len(lanes) else 0.0
+    overall_lead=float(df.lead_time_days.mean()) if len(df) else 0.0
+    lanes["volume_threshold"]=volume_cutoff
+    lanes["overall_mean_lead"]=overall_lead
+    lanes["congested"]=(lanes.order_count>volume_cutoff)&(lanes.mean_lead>overall_lead)
+    return lanes.sort_values(["congested","order_count","mean_lead"],ascending=[False,False,False])

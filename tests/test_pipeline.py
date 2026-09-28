@@ -3,6 +3,8 @@ import pandas as pd
 from data_prep import repair_ship_dates, haversine_km, resolve_customer_centroid, prepare_data
 from config import STATE_CENTROIDS, FACTORY_COORDS, PRODUCT_FACTORY, DATA_PATH
 from simulation import compute_kpis, joint_optimize, score_products
+from models import select_model
+from clustering import congested_region_products
 
 def test_date_repair_is_nonnegative_small_and_mode_ordered():
     orders=pd.Series(pd.to_datetime(["2024-01-01"]*4))
@@ -93,7 +95,7 @@ def _assumptions(weight):
     from types import SimpleNamespace
     return SimpleNamespace(freight_speed_km_day=900.,freight_cost_per_unit_per_1000km=.15,
         capability_gap_penalty=.2,min_orders_for_recommendation=10,min_material_days=1.,
-        capacity_multiplier=1.5,speed_weight=weight,monte_carlo_iterations=1)
+        capacity_multiplier=1.5,speed_weight=weight,risk_weight=.2,monte_carlo_iterations=1)
 
 def test_score_products_keeps_one_incumbent_row_and_invariant_weights():
     frame=_scoring_fixture()
@@ -127,3 +129,27 @@ def test_joint_optimizer_capacity_respected_in_both_modes():
         limits=orders.groupby("current_factory").units.sum().reindex(FACTORY_COORDS,fill_value=0)*1.5
         used=result.groupby("factory").units.sum().reindex(FACTORY_COORDS,fill_value=0)
         assert (used<=limits+1e-9).all()
+
+def test_model_selection_prefers_interpretable_model_within_tolerance():
+    report=pd.DataFrame({"feature_set":["Full feature set"]*4,
+        "model":["Linear Regression","Ridge","Random Forest","Gradient Boosting"],
+        "cv_r2_mean":[.78,.80,.81,.80]})
+    temporal={"Linear Regression":{"r2":.78},"Ridge":{"r2":.80},
+        "Random Forest":{"r2":.81},"Gradient Boosting":{"r2":.80}}
+    selection,chosen=select_model(report,temporal,.02)
+    assert chosen=="Ridge"
+    assert selection.chosen.sum()==1
+
+def test_risk_scores_include_capability_and_capacity_pressure():
+    frame=_scoring_fixture()
+    scored=score_products(frame,_assumptions(.5),top_n=len(FACTORY_COORDS))
+    assert scored.loc[scored.is_incumbent,"risk_score"].eq(0).all()
+    assert scored.risk_score.between(0,1).all()
+    assert scored.loc[~scored.is_incumbent,"risk_reduction"].eq(-scored.loc[~scored.is_incumbent,"risk_score"]).all()
+
+def test_region_product_congestion_requires_high_volume_and_lead():
+    frame=pd.DataFrame({"region":["A"]*4+["B"]*2,"product_name":["P"]*6,
+        "order_id":range(6),"lead_time_days":[5.,5.,5.,5.,1.,1.]})
+    result=congested_region_products(frame)
+    assert result.loc[result.region=="A","congested"].iloc[0]
+    assert not result.loc[result.region=="B","congested"].iloc[0]

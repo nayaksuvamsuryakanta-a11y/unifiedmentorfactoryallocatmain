@@ -57,6 +57,7 @@ def make_assumptions(speed, cost, weight):
         min_material_days=Assumptions.min_material_days,
         capacity_multiplier=Assumptions.capacity_multiplier,
         speed_weight=float(weight),
+        risk_weight=Assumptions.risk_weight,
         monte_carlo_iterations=Assumptions.monte_carlo_iterations,
     )
 
@@ -275,6 +276,7 @@ def main():
         cost = st.slider("Freight cost (assumed /unit/1,000 km)", 0.05, 0.30, float(Assumptions.freight_cost_per_unit_per_1000km), 0.01, format="%.2f")
         weight = st.slider("Speed vs profit priority", 0.0, 1.0, float(Assumptions.speed_weight), 0.05, format="%.2f")
         st.caption("Under the current distance-only freight model, speed and profit gains are perfectly correlated, so this control does not change rankings.")
+        st.caption(f"Risk-axis weight ({Assumptions.risk_weight:.0%}) is an assumption; capacity pressure uses historical factory units.")
 
     assumptions = make_assumptions(speed, cost, weight)
     subset = filter_orders(orders, product, region, ship_mode)
@@ -367,7 +369,7 @@ def main():
             view = add_recommendation_status(view)
         if actionable_only:
             view = view[view.sufficient_evidence.fillna(False) & view.materially_better.fillna(False)]
-        cols = [c for c in ["product", "current_factory", "candidate_factory", "orders", "units", "delta_distance_km", "delta_lead_days", "profit_impact", "confidence", "score", "evidence_status", "improvement_status", "capability_gap", "status"] if c in view]
+        cols = [c for c in ["product", "current_factory", "candidate_factory", "orders", "units", "delta_distance_km", "delta_lead_days", "profit_impact", "risk_score", "confidence", "score", "evidence_status", "improvement_status", "capability_gap", "status"] if c in view]
         display_frame(view[cols].rename(columns={
             "product": "Product", "current_factory": "Current factory", "candidate_factory": "Recommended factory", "orders": "Orders", "units": "Units",
             "delta_distance_km": "Δ distance (km)", "delta_lead_days": "Δ lead (days)", "profit_impact": "Profit impact", "confidence": "Confidence (%)",
@@ -380,11 +382,18 @@ def main():
         st.subheader("Operational risks and route exposure")
         candidates = score_products(orders, assumptions=assumptions, top_n=len(FACTORY_COORDS))
         candidates = candidates[~candidates.is_incumbent]
+        high_risk = candidates[candidates.risk_score >= 0.5].copy()
+        st.markdown("#### High-risk reassignment warnings")
+        if len(high_risk):
+            high_risk["warning"] = "High modeled risk (risk score ≥ 0.5)"
+            display_frame(high_risk[["product", "candidate_factory", "risk_score", "risk_reduction", "capability_gap", "warning"]].sort_values("risk_score", ascending=False), height=240)
+        else:
+            st.success("No alternative factory meets the modeled high-risk threshold (0.5).")
         gaps = candidates[candidates.capability_gap].copy()
         if len(gaps):
             gaps["status"] = "⚠️ Capability gap"
             st.markdown("#### Capability-gap alternatives")
-            display_frame(gaps[["product", "candidate_factory", "orders", "confidence", "score", "status"]], height=220)
+            display_frame(gaps[["product", "candidate_factory", "orders", "risk_score", "confidence", "score", "status"]], height=220)
         else:
             st.success("No capability-gap alternatives appear in the current candidate set.")
         losses = candidates[candidates.profit_impact < 0].copy()
@@ -398,6 +407,9 @@ def main():
         problem = routes[routes.problem_route.astype(bool)].sort_values("exposure", ascending=False)
         st.markdown("#### Slow routes flagged by clustering")
         display_frame(problem[["current_factory", "region", "division", "order_count", "mean_lead", "p90_lead", "mean_distance", "mean_margin", "cluster_label", "exposure"]].head(20), height=300)
+        congestion = load_table("congested_region_products.csv")
+        st.markdown("#### Congested region/product combinations")
+        display_frame(congestion[congestion.congested.astype(bool)][["region", "product_name", "order_count", "mean_lead", "p90_lead", "volume_threshold", "overall_mean_lead"]].head(30), height=300)
         st.markdown("#### Factory locations")
         factory_map()
 
@@ -412,13 +424,17 @@ def main():
         st.markdown("#### Historical residual by distance decile")
         display_frame(load_table("distance_residual_bins.csv"), height=260)
         st.markdown("#### Random split and temporal holdout")
-        model_metrics = load_table("model_metrics.csv").rename(columns={"r2": "r2_random", "rmse": "rmse_random", "mae": "mae_random"})
+        model_metrics = load_table("model_metrics.csv")
+        brief_metrics = model_metrics[model_metrics.feature_set == "Brief spec"].add_suffix("_brief")
+        model_metrics = model_metrics[model_metrics.feature_set == "Full feature set"].rename(columns={"r2": "r2_random", "rmse": "rmse_random", "mae": "mae_random"})
         temporal_values = json.loads((ARTIFACT_DIR / "temporal_metrics.json").read_text(encoding="utf-8"))
         temporal = pd.DataFrame.from_dict(temporal_values, orient="index").rename_axis("model").reset_index()
         temporal = temporal.rename(columns={"r2": "r2_temporal", "rmse": "rmse_temporal", "mae": "mae_temporal"})
-        joined = model_metrics.merge(temporal, on="model")
-        columns = [c for c in ["model", "r2_random", "rmse_random", "mae_random", "r2_temporal", "rmse_temporal", "mae_temporal"] if c in joined]
+        joined = model_metrics.merge(temporal, on="model").merge(brief_metrics, left_on="model", right_on="model_brief")
+        columns = [c for c in ["model", "r2_random", "rmse_random", "mae_random", "r2_temporal", "rmse_temporal", "mae_temporal", "cv_r2_mean_brief", "temporal_r2_brief"] if c in joined]
         display_frame(joined[columns], height=200)
+        st.markdown("#### Accuracy and interpretability selection")
+        display_frame(load_table("model_selection.csv"), height=200)
         kpi_data = json.loads((ARTIFACT_DIR / "kpis.json").read_text(encoding="utf-8"))
         point = kpi_data["point"]["lead_time_reduction_pct"]
         samples = load_table("sensitivity.csv")

@@ -9,7 +9,7 @@ import pandas as pd
 from config import ARTIFACT_DIR, Assumptions, FACTORY_COORDS, SHIP_MODE_RANK, DATA_PATH
 from data_prep import prepare_data
 from models import train_models
-from clustering import cluster_routes
+from clustering import cluster_routes, congested_region_products
 from simulation import score_products, joint_optimize, compute_kpis, sensitivity
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -27,7 +27,8 @@ def markdown_table(frame):
 def write_reports(df, metrics, temporal, diagnostic, routes, recommendations,
                   assignment, exploratory_assignment, exploratory_moves, exploratory_forced,
                   kpis, mc, choice_stability, solver):
-    best = metrics.sort_values("r2", ascending=False).iloc[0]
+    selected_name=diagnostic["selected_model"]
+    best=metrics[(metrics.feature_set=="Full feature set")&(metrics.model==selected_name)].iloc[0]
     temporal_table = pd.DataFrame(temporal).T
     temporal_best = temporal_table.r2.idxmax() if not temporal_table.empty else "unavailable"
     mode = diagnostic["mode_slopes"].sort_values("p_value")
@@ -72,6 +73,8 @@ def write_reports(df, metrics, temporal, diagnostic, routes, recommendations,
 
 ## Abstract
 
+Leadership attributes long lead times to static factory assignments and suboptimal shipping distances. We tested that premise directly: shipping mode dominates prediction and distance adds little.
+
 This decision-support study tests whether moving a product to another of five factories can plausibly shorten delivery without reducing gross profit. In the supplied sample of **{len(df):,} retained order lines**, shipping mode explains most predictable lead-time variation. The distance ablation changes five-fold R² by only a small amount, and within-mode distance slopes are not statistically significant at the 5% level. The simulated moves remain assumption-driven and the configured evidence/materiality gates produce **{actionable['product'].nunique() if len(actionable) else 0} actionable top-ranked products**. The analysis therefore supports investigation and measurement, not an unqualified network redesign.
 
 ## Background and problem
@@ -90,7 +93,11 @@ ZIP/postal centroid values from **pgeocode 0.5.0 / GeoNames postal dataset** are
 
 ## Modeling methods and results
 
-We compare linear regression, Ridge, random forest, and gradient boosting using a fixed 80/20 random holdout and shuffled five-fold cross-validation. Temporal validation trains on the earlier order year and evaluates on the later year. The random-holdout best model was **{best.model}** (R² {best.r2:.3f}, RMSE {best.rmse:.3f} days, MAE {best.mae:.3f} days; CV R² {best.cv_r2_mean:.3f}). Best temporal R² came from **{temporal_best}** (R² {temporal_table.loc[temporal_best, 'r2']:.3f}). Temporal performance is weaker than the best random holdout, so random-split scores should not be treated as deployment forecasts.
+We compare linear regression, Ridge, random forest, and gradient boosting using a fixed 80/20 random holdout and shuffled five-fold cross-validation. Temporal validation trains on the earlier order year and evaluates on the later year. The selected model was **{best.model}** (R² {best.r2:.3f}, RMSE {best.rmse:.3f} days, MAE {best.mae:.3f} days; CV R² {best.cv_r2_mean:.3f}). Best temporal R² came from **{temporal_best}** (R² {temporal_table.loc[temporal_best, 'r2']:.3f}). Temporal performance is weaker than the best random holdout, so random-split scores should not be treated as deployment forecasts.
+
+Product and current factory overlap because each product has a fixed incumbent. The brief-spec variant uses exactly product, current factory, region, and ship mode; its scores are in `artifacts/model_metrics.csv`.
+
+Model-selection score averages the five-fold CV R² and temporal R²; the configured tolerance is {Assumptions.model_selection_tolerance:.2f}, and choices at 0.01, 0.02, and 0.05 are {diagnostic['selection_choices']}.
 
 Permutation importance is saved in `artifacts/permutation_importance.csv` and is based on the selected model’s held-out sample. All metrics and folds use the fixed seed.
 
@@ -114,7 +121,9 @@ Orders are aggregated to factory/region/division lanes. Low-volume lanes (under 
 
 Measured quantities are product-level order/units, observed gross profit and lead baseline, and Haversine distance deltas. **Assumed quantities** are freight speed ({Assumptions.freight_speed_km_day:g} km/day), freight cost ({Assumptions.freight_cost_per_unit_per_1000km:g} currency/unit/1,000 km), capability gap penalty ({Assumptions.capability_gap_penalty:.0%}), minimum evidence ({Assumptions.min_orders_for_recommendation} orders), material lead improvement ({Assumptions.min_material_days:g} days), and factory capacity ({Assumptions.capacity_multiplier:g}× current units). Delta lead equals measured distance change divided by assumed speed; delta cost equals measured units times distance change times assumed rate. Candidate factories without historical production in the product division receive a visible capability-gap flag and score discount. Confidence combines evidence volume and lead-time stability, then discounts capability gaps and is capped below 100.
 
-Per-product ranking min-max normalizes lead and profit gain across candidate factories, combines them with the speed/profit weight, and applies capability/confidence discounts. The joint mixed-integer assignment selects one factory per product subject to each factory’s unit capacity. **Solver used: {solver}.** Joint assignment differs from independent top picks for **{len(differs)} products**; comparison rows are printed in the pipeline output.
+Per-product ranking min-max normalizes lead and profit gain across candidate factories, combines them with the speed/profit weight, and applies capability/confidence discounts. The joint mixed-integer assignment selects one factory per product subject to each factory’s unit capacity. **Solver used: {solver}.** Gated assignment moves **{int((assignment.factory != assignment.product.map(incumbents)).sum())} products** off incumbents. Exploratory assignment moves **{exploratory_moves}**, with **{exploratory_forced}** differing from their own highest-scoring option due to capacity. The former six-product comparison came from zeroing incumbent scores and allowing moves without evidence or materiality gates.
+
+Under the current freight model, speed and profit gains are perfectly correlated per product, so the speed/profit control cannot change rankings. A real trade-off requires per-factory cost or freight-rate data absent from the source. Risk weight ({Assumptions.risk_weight:.0%}) is an assumption. Risk averages the capability-gap flag and candidate capacity pressure (product units divided by candidate factory historical units, capped at 1); incumbent risk is zero. Capability gaps affect confidence, the score multiplier, and the risk axis, so these effects stack.
 
 ## Actionable KPIs and uncertainty
 
@@ -132,7 +141,7 @@ The engine sampled **{len(mc)}** draws over freight speed 400–1,600 km/day and
 
 ## Limitations and recommendations
 
-Historical lead time reflects ship mode and observed order behavior, not isolated factory transit time. Destination centroids, missing shipping charges, capability gaps, and assumed speed/cost make scenario predictions exploratory. Temporal performance is worse than random validation. Before operational transfers, run controlled pilots with actual carrier, route, ship date, and freight invoice data. Until evidence and materiality gates are met, retain current assignments and collect those measurements.
+The KPI bootstrap resamples which products pass the order-count gate but does not re-estimate lead or profit deltas. Historical lead time reflects ship mode and observed order behavior, not isolated factory transit time. Destination centroids, missing shipping charges, capability gaps, and assumed speed/cost make scenario predictions exploratory. Temporal performance is worse than random validation. Before operational transfers, run controlled pilots with actual carrier, route, ship date, and freight invoice data. Until evidence and materiality gates are met, retain current assignments and collect those measurements.
 
 ## Recommendation table
 
@@ -141,7 +150,7 @@ Historical lead time reflects ship mode and observed order behavior, not isolate
     (ARTIFACT_DIR.parent / "research_paper.md").write_text(paper, encoding="utf-8")
     executive = f"""# Executive summary: Nassau Candy factory allocation
 
-**The data does not show a dependable delivery-time benefit from factory distance once shipping mode is considered.** Shipping mode predicts delivery timing much better than factory location, and temporal validation is weaker than a random split. Scenario estimates depend on assumed freight speed and freight cost, so the analysis does not justify moving products on its own.
+**Leadership attributes long lead times to static factory assignments and suboptimal shipping distances. We tested that premise directly; the data does not show a dependable delivery-time benefit from factory distance once shipping mode is considered.** Shipping mode predicts delivery timing much better than factory location, and temporal validation is weaker than a random split. Scenario estimates depend on assumed freight speed and freight cost, so the analysis does not justify moving products on its own.
 
 | Decision | Recommendation | Why |
 |---|---|---|
@@ -164,6 +173,7 @@ def main():
     print(f"Prepared rows after sales/units/profit/cost IQR filter: {len(df):,}")
     model_report, importance, temporal, diagnostic = train_models(df)
     routes = cluster_routes(df)
+    congestion = congested_region_products(df)
     recommendations = score_products(df, top_n=3)
     all_candidates = score_products(df, top_n=len(FACTORY_COORDS))
     assignment = joint_optimize(all_candidates, df, gated=True)
@@ -172,9 +182,10 @@ def main():
     mc, choices = sensitivity(df, Assumptions.monte_carlo_iterations)
     for name, obj in [
         ("model_metrics", model_report), ("permutation_importance", importance),
-        ("routes", routes), ("recommendations", recommendations),
+        ("routes", routes), ("congested_region_products", congestion), ("recommendations", recommendations),
         ("joint_assignment", assignment), ("joint_assignment_gated", assignment),
         ("joint_assignment_exploratory", exploratory_assignment), ("ablation", diagnostic["ablation"]),
+        ("model_selection", diagnostic["model_selection"]),
         ("mode_slopes", diagnostic["mode_slopes"]),
         ("distance_residual_bins", diagnostic["residual_distance"]),
         ("state_distance", diagnostic["state_distance"]), ("sensitivity", mc),
@@ -186,6 +197,8 @@ def main():
     joint = assignment.set_index("product").factory.to_dict()
     differences = [(p, factory, joint.get(p)) for p, factory in individual.items() if joint.get(p) != factory]
     print("\nModel held-out and five-fold CV metrics:\n", model_report.to_string(index=False))
+    print("\nModel selection (mean CV and temporal R²; configured tolerance):\n", diagnostic["model_selection"].to_string(index=False))
+    print("Model choices by tolerance: " + ", ".join(f"{tol:.2f} → {name}" for tol,name in diagnostic["selection_choices"].items()))
     comparison = model_report.set_index("model").join(pd.DataFrame(temporal).T.add_prefix("temporal_"))
     print("\nRandom split versus temporal validation (R²/RMSE/MAE):\n", comparison[["r2", "rmse", "mae", "temporal_r2", "temporal_rmse", "temporal_mae"]].to_string())
     print("\nDistance ablation (both geocoding precisions):\n", diagnostic["ablation"].to_string(index=False))

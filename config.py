@@ -40,3 +40,5 @@ class Assumptions:
     capacity_multiplier = 1.5
     speed_weight = 0.5
     monte_carlo_iterations = 300
+    model_selection_tolerance = 0.02
+    risk_weight = 0.20

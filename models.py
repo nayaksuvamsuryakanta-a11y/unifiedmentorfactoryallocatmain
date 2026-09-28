@@ -9,37 +9,58 @@ from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from sklearn.model_selection import train_test_split, KFold, cross_val_score, cross_validate
 from sklearn.pipeline import Pipeline
 from features import make_preprocessor
-from config import SEED
+from config import SEED, Assumptions
 
 def metrics(y,p): return {"r2":float(r2_score(y,p)),"rmse":float(mean_squared_error(y,p)**.5),"mae":float(mean_absolute_error(y,p))}
+
+def select_model(report, temporal, tolerance=Assumptions.model_selection_tolerance):
+    """Select by average CV/temporal R², preferring interpretable ties within tolerance."""
+    full=report[report.feature_set=="Full feature set"].copy()
+    full["temporal_r2"]=[temporal.get(name,{}).get("r2",np.nan) for name in full.model]
+    full["selection_score"]=(full.cv_r2_mean+full.temporal_r2)/2
+    tiers={"Linear Regression":0,"Ridge":0,"Random Forest":1,"Gradient Boosting":1}
+    full["interpretability_tier"]=full.model.map(tiers)
+    best=full.selection_score.max()
+    eligible=full[full.selection_score>=best-float(tolerance)]
+    chosen=eligible.sort_values(["interpretability_tier","selection_score"],ascending=[True,False]).iloc[0].model
+    full["chosen"]=(full.model==chosen)
+    return full[["model","cv_r2_mean","temporal_r2","selection_score","interpretability_tier","chosen"]],chosen
+
 def train_models(df):
-    features=[c for c in ["ship_mode_rank","order_month","order_quarter","order_weekday","order_weekend","sales","units","gross_profit","cost","distance_km","ship_mode","region","division","current_factory"] if c in df]
-    X,y=df[features],df.lead_time_days
+    features=[c for c in ["ship_mode_rank","order_month","order_quarter","order_weekday","order_weekend","sales","units","gross_profit","cost","distance_km","ship_mode","region","division","current_factory","product_name"] if c in df]
+    brief_features=[c for c in ["product_name","current_factory","region","ship_mode"] if c in df]
+    y=df.lead_time_days
     tr,te=train_test_split(np.arange(len(df)),test_size=.2,random_state=SEED)
     estimators={"Linear Regression":LinearRegression(),"Ridge":Ridge(alpha=1.0),"Random Forest":RandomForestRegressor(n_estimators=100,min_samples_leaf=3,random_state=SEED,n_jobs=1),"Gradient Boosting":GradientBoostingRegressor(random_state=SEED,n_estimators=60)}
-    rows=[]; fitted={}
+    rows=[]; fitted={}; temporal={}
     cv=KFold(5,shuffle=True,random_state=SEED)
-    for name,est in estimators.items():
-        pipe=Pipeline([("prep",make_preprocessor([c for c in features if c not in ("ship_mode","region","division","current_factory")],[c for c in features if c in ("ship_mode","region","division","current_factory")])),("model",est)])
-        # Windows joblib process fan-out can create dozens of workers and spend
-        # more time serializing the same frame than fitting these small models.
-        # Serial CV is predictable and keeps the full pipeline runnable locally/CI.
-        cv_scores=cross_validate(pipe,X,y,cv=cv,scoring={"r2":"r2","rmse":"neg_root_mean_squared_error","mae":"neg_mean_absolute_error"},n_jobs=1)
-        pipe.fit(X.iloc[tr],y.iloc[tr]); pred=pipe.predict(X.iloc[te])
-        rows.append({"model":name,**metrics(y.iloc[te],pred),"cv_r2_mean":float(cv_scores["test_r2"].mean()),"cv_r2_std":float(cv_scores["test_r2"].std()),"cv_rmse_mean":float(-cv_scores["test_rmse"].mean()),"cv_rmse_std":float(cv_scores["test_rmse"].std()),"cv_mae_mean":float(-cv_scores["test_mae"].mean()),"cv_mae_std":float(cv_scores["test_mae"].std())})
-        fitted[name]=pipe
-    report=pd.DataFrame(rows)
-    best=fitted[report.sort_values("r2",ascending=False).iloc[0].model]
-    imp=permutation_importance(best,X.iloc[te],y.iloc[te],n_repeats=10,random_state=SEED,scoring="r2",n_jobs=1)
-    importance=pd.DataFrame({"feature":features,"importance_mean":imp.importances_mean,"importance_std":imp.importances_std}).sort_values("importance_mean",ascending=False)
-    temporal={}
     years=sorted(df.order_date.dt.year.unique())
-    if len(years)>=2:
-        early=df.order_date.dt.year==years[0]; late=df.order_date.dt.year==years[-1]
-        for name,model in fitted.items():
-            if early.sum() and late.sum():
-                m=clone(model).fit(X.loc[early],y.loc[early]); temporal[name]=metrics(y.loc[late],m.predict(X.loc[late]))
+    for feature_set,feature_columns in (("Full feature set",features),("Brief spec",brief_features)):
+        X=df[feature_columns]
+        cat=[c for c in feature_columns if c in ("ship_mode","region","division","current_factory","product_name")]
+        num=[c for c in feature_columns if c not in cat]
+        for name,est in estimators.items():
+            pipe=Pipeline([("prep",make_preprocessor(num,cat)),("model",clone(est))])
+            cv_scores=cross_validate(pipe,X,y,cv=cv,scoring={"r2":"r2","rmse":"neg_root_mean_squared_error","mae":"neg_mean_absolute_error"},n_jobs=1)
+            pipe.fit(X.iloc[tr],y.iloc[tr]); pred=pipe.predict(X.iloc[te])
+            row={"feature_set":feature_set,"model":name,**metrics(y.iloc[te],pred),"cv_r2_mean":float(cv_scores["test_r2"].mean()),"cv_r2_std":float(cv_scores["test_r2"].std()),"cv_rmse_mean":float(-cv_scores["test_rmse"].mean()),"cv_rmse_std":float(cv_scores["test_rmse"].std()),"cv_mae_mean":float(-cv_scores["test_mae"].mean()),"cv_mae_std":float(cv_scores["test_mae"].std())}
+            if len(years)>=2:
+                early=df.order_date.dt.year==years[0]; late=df.order_date.dt.year==years[-1]
+                if early.sum() and late.sum():
+                    temporal_result=metrics(y.loc[late],clone(pipe).fit(X.loc[early],y.loc[early]).predict(X.loc[late]))
+                    row["temporal_r2"]=temporal_result["r2"]
+                    if feature_set=="Full feature set": temporal[name]=temporal_result
+            rows.append(row)
+            if feature_set=="Full feature set": fitted[name]=(pipe,X)
+    report=pd.DataFrame(rows)
+    selection,chosen=select_model(report,temporal)
+    selected,X=fitted[chosen]
+    imp=permutation_importance(selected,X.iloc[te],y.iloc[te],n_repeats=10,random_state=SEED,scoring="r2",n_jobs=1)
+    importance=pd.DataFrame({"feature":features,"importance_mean":imp.importances_mean,"importance_std":imp.importances_std}).sort_values("importance_mean",ascending=False)
     diagnostic=distance_diagnostics(df,features)
+    diagnostic["model_selection"]=selection
+    diagnostic["selection_choices"]={tol:select_model(report,temporal,tol)[1] for tol in (0.01,0.02,0.05)}
+    diagnostic["selected_model"]=chosen
     return report,importance,temporal,diagnostic
 
 def distance_diagnostics(df,features):

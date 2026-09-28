@@ -20,6 +20,7 @@ def score_products(df,assumptions=Assumptions,top_n=3,reference_df=None):
         # baseline metrics, while capability history must still use all orders.
         history=reference_df if reference_df is not None else df
         prod_div=history[history.division==division].groupby("current_factory").product_name.nunique()
+        factory_units=history.groupby("current_factory").units.sum()
         current_dist=float(np.average(g[f"distance_{current}"],weights=g.units.clip(lower=1)))
         candidates=[]
         for factory in FACTORY_COORDS:
@@ -28,19 +29,21 @@ def score_products(df,assumptions=Assumptions,top_n=3,reference_df=None):
             delta_lead=delta_dist/assumptions.freight_speed_km_day # assumed freight-speed conversion
             delta_cost=total_units*delta_dist/1000*assumptions.freight_cost_per_unit_per_1000km # assumed cost
             cap_gap=factory!=current and prod_div.get(factory,0)==0
+            capacity_pressure=min(1.0,total_units/max(float(factory_units.get(factory,0.0)),1.0))
+            risk_score=0.0 if factory==current else (float(bool(cap_gap))+capacity_pressure)/2
+            risk_reduction=-risk_score
             # Confidence is evidence/stability minus the explicit capability-gap penalty.
             conf=max(0,min(99,base_conf-(100*assumptions.capability_gap_penalty if cap_gap else 0)))
-            candidates.append(dict(product=product,current_factory=current,candidate_factory=factory,is_incumbent=factory==current,orders=n,units=total_units,baseline_lead_days=baseline,baseline_profit=base_profit,current_distance_km=current_dist,candidate_distance_km=dist,delta_distance_km=delta_dist,delta_lead_days=delta_lead,new_lead_days=baseline+delta_lead,delta_cost=delta_cost,profit_impact=-delta_cost,new_profit=base_profit-delta_cost,confidence=conf,capability_gap=bool(cap_gap),evidence_score=evidence,stability_score=stability))
+            candidates.append(dict(product=product,current_factory=current,candidate_factory=factory,is_incumbent=factory==current,orders=n,units=total_units,baseline_lead_days=baseline,baseline_profit=base_profit,current_distance_km=current_dist,candidate_distance_km=dist,delta_distance_km=delta_dist,delta_lead_days=delta_lead,new_lead_days=baseline+delta_lead,delta_cost=delta_cost,profit_impact=-delta_cost,new_profit=base_profit-delta_cost,confidence=conf,capability_gap=bool(cap_gap),risk_score=risk_score,risk_reduction=risk_reduction,evidence_score=evidence,stability_score=stability))
         c=pd.DataFrame(candidates)
         c["lead_gain"]=-c.delta_lead_days; c["profit_gain"]=c.profit_impact
         # For each product, both gains are positive multiples of the same distance-change vector;
         # min-max normalization therefore makes the speed_weight blend rank-invariant.
-        c["objective"]=(assumptions.speed_weight*_norm(c.lead_gain)+(1-assumptions.speed_weight)*_norm(c.profit_gain))
+        speed_profit=(assumptions.speed_weight*_norm(c.lead_gain)+(1-assumptions.speed_weight)*_norm(c.profit_gain))
+        c["objective"]=(1-assumptions.risk_weight)*speed_profit+assumptions.risk_weight*_norm(c.risk_reduction)
         c["score"]=c.objective*np.where(c.capability_gap,1-assumptions.capability_gap_penalty,1)*c.confidence/100
         c["sufficient_evidence"]=n>=assumptions.min_orders_for_recommendation
         c["materially_better"]=(c.lead_gain>=assumptions.min_material_days)&(c.profit_impact>=0)
-        c["risk_score"]=0.0
-        c["risk_reduction"]=0.0
         selected=pd.concat([c[~c.is_incumbent].sort_values("score",ascending=False).head(top_n),c[c.is_incumbent]])
         rows.extend(selected.to_dict("records"))
     return pd.DataFrame(rows)
