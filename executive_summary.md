@@ -1,6 +1,6 @@
 # Executive summary: Nassau Candy factory allocation
 
-**The data does not show a dependable delivery-time benefit from factory distance once shipping mode is considered.** Shipping mode predicts delivery timing much better than factory location, and temporal validation is weaker than a random split. Scenario estimates depend on assumed freight speed and freight cost, so the analysis does not justify moving products on its own.
+**Leadership attributes long lead times to static factory assignments and suboptimal shipping distances. We tested that premise directly; the data does not show a dependable delivery-time benefit from factory distance once shipping mode is considered.** Shipping mode predicts delivery timing much better than factory location, and temporal validation is weaker than a random split. Scenario estimates depend on assumed freight speed and freight cost, so the analysis does not justify moving products on its own.
 
 | Decision | Recommendation | Why |
 |---|---|---|

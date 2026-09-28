@@ -4,7 +4,7 @@ Decision support for testing whether assigning products to alternative factories
 
 ## Requirements and run
 
-Python 3.10 or later is required. From this directory:
+Pinned dependencies support Python 3.11, 3.12, and 3.14. Local verification used Python 3.14.0; CI covers all three versions. From this directory:
 
 ```powershell
 python -m venv .venv
@@ -12,9 +12,10 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 python run_pipeline.py
 python -m pytest -q
+streamlit run app.py
 ```
 
-The pipeline reads `Nassau Candy Distributor.csv` beside `run_pipeline.py`, validates and repairs the ship dates, trains the models, runs diagnostics and both optimization modes, and writes CSV/JSON outputs to `artifacts/`, plus `research_paper.md` and `executive_summary.md` at the project root. The dashboard is run with `streamlit run app.py` after the backend artifacts exist.
+The pipeline reads `Nassau Candy Distributor.csv` beside `run_pipeline.py`, validates and repairs the ship dates, trains the models, runs diagnostics and both optimization modes, and writes CSV/JSON outputs to `artifacts/`, plus `research_paper.md` and `executive_summary.md` at the project root. The dashboard reads checked-in artifacts directly and does not run the pipeline on launch. Regenerate artifacts with `python run_pipeline.py` after changing analysis code or assumptions.
 
 The dashboard includes the filtered factory simulator, one-move comparison, catalogue and joint-assignment views, risk/route map, and evidence diagnostics. Its near-black palette and Carto dark basemap are configured locally. Monte Carlo draws and per-product choice-stability results are read from saved artifacts so dashboard interactions do not rerun the sensitivity simulation.
 

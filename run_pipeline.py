@@ -68,7 +68,7 @@ def write_reports(df, metrics, temporal, diagnostic, routes, recommendations,
     if recommendation_rows.empty:
         rec_table = "| Current decision | Recommendation | Evidence |\n|---|---|---|\n| Retain current factory assignments | No move currently clears both evidence and material-improvement gates | No actionable products at configured thresholds |"
     else:
-        rec_table = markdown_table(recommendation_rows[["product", "candidate_factory", "lead_gain", "profit_impact", "confidence"]].round(2))
+        rec_table = markdown_table(recommendation_rows[["product", "candidate_factory", "lead_gain", "profit_impact", "risk_score", "confidence"]].round(2))
     paper = f"""# Factory Reallocation & Shipping Optimization: Nassau Candy Distributor
 
 ## Abstract
@@ -121,7 +121,7 @@ Orders are aggregated to factory/region/division lanes. Low-volume lanes (under 
 
 Measured quantities are product-level order/units, observed gross profit and lead baseline, and Haversine distance deltas. **Assumed quantities** are freight speed ({Assumptions.freight_speed_km_day:g} km/day), freight cost ({Assumptions.freight_cost_per_unit_per_1000km:g} currency/unit/1,000 km), capability gap penalty ({Assumptions.capability_gap_penalty:.0%}), minimum evidence ({Assumptions.min_orders_for_recommendation} orders), material lead improvement ({Assumptions.min_material_days:g} days), and factory capacity ({Assumptions.capacity_multiplier:g}× current units). Delta lead equals measured distance change divided by assumed speed; delta cost equals measured units times distance change times assumed rate. Candidate factories without historical production in the product division receive a visible capability-gap flag and score discount. Confidence combines evidence volume and lead-time stability, then discounts capability gaps and is capped below 100.
 
-Per-product ranking min-max normalizes lead and profit gain across candidate factories, combines them with the speed/profit weight, and applies capability/confidence discounts. The joint mixed-integer assignment selects one factory per product subject to each factory’s unit capacity. **Solver used: {solver}.** Gated assignment moves **{int((assignment.factory != assignment.product.map(incumbents)).sum())} products** off incumbents. Exploratory assignment moves **{exploratory_moves}**, with **{exploratory_forced}** differing from their own highest-scoring option due to capacity. The former six-product comparison came from zeroing incumbent scores and allowing moves without evidence or materiality gates.
+Per-product ranking min-max normalizes lead and profit gain across candidate factories, combines them with the speed/profit weight, and applies capability/confidence discounts. The joint mixed-integer assignment selects one factory per product subject to each factory’s unit capacity. **Solver used: {solver}.** Gated assignment moves **{int((assignment.factory != assignment["product"].map(incumbents)).sum())} products** off incumbents. Exploratory assignment moves **{exploratory_moves}**, with **{exploratory_forced}** differing from their own highest-scoring option due to capacity. This replaces the former comparison, which came from zeroing incumbent scores and allowing moves without evidence or materiality gates.
 
 Under the current freight model, speed and profit gains are perfectly correlated per product, so the speed/profit control cannot change rankings. A real trade-off requires per-factory cost or freight-rate data absent from the source. Risk weight ({Assumptions.risk_weight:.0%}) is an assumption. Risk averages the capability-gap flag and candidate capacity pressure (product units divided by candidate factory historical units, capped at 1); incumbent risk is zero. Capability gaps affect confidence, the score multiplier, and the risk axis, so these effects stack.
 
@@ -199,17 +199,20 @@ def main():
     print("\nModel held-out and five-fold CV metrics:\n", model_report.to_string(index=False))
     print("\nModel selection (mean CV and temporal R²; configured tolerance):\n", diagnostic["model_selection"].to_string(index=False))
     print("Model choices by tolerance: " + ", ".join(f"{tol:.2f} → {name}" for tol,name in diagnostic["selection_choices"].items()))
-    comparison = model_report.set_index("model").join(pd.DataFrame(temporal).T.add_prefix("temporal_"))
+    comparison = (model_report[model_report.feature_set=="Full feature set"]
+                  .drop(columns=["temporal_r2"],errors="ignore")
+                  .set_index("model").join(pd.DataFrame(temporal).T.add_prefix("temporal_")))
     print("\nRandom split versus temporal validation (R²/RMSE/MAE):\n", comparison[["r2", "rmse", "mae", "temporal_r2", "temporal_rmse", "temporal_mae"]].to_string())
     print("\nDistance ablation (both geocoding precisions):\n", diagnostic["ablation"].to_string(index=False))
     print("\nWithin-mode distance slopes and p-values:\n", diagnostic["mode_slopes"].to_string(index=False))
     print("\nShip-mode-controlled state/distance proxy comparison:\n", diagnostic["state_distance"].to_string(index=False))
     print(f"\nJoint solver path: {assignment.attrs.get('solver', 'unknown')}")
     incumbents = df.groupby("product_name").current_factory.agg(lambda s:s.dropna().mode().iloc[0] if s.notna().any() else None)
-    gated_moves = int((assignment.factory != assignment.product.map(incumbents)).sum())
-    exploratory_moves = int((exploratory_assignment.factory != exploratory_assignment.product.map(incumbents)).sum())
-    highest = all_candidates.sort_values("score", ascending=False).drop_duplicates("product").set_index("product").candidate_factory
-    exploratory_forced = int((exploratory_assignment.set_index("product").factory != highest).sum())
+    gated_moves = int((assignment.factory != assignment["product"].map(incumbents)).sum())
+    exploratory_moves = int((exploratory_assignment.factory != exploratory_assignment["product"].map(incumbents)).sum())
+    highest = all_candidates.sort_values("score", ascending=False).drop_duplicates("product").set_index("product").candidate_factory.sort_index()
+    exploratory_choice = exploratory_assignment.set_index("product").factory.sort_index()
+    exploratory_forced = int((exploratory_choice.to_numpy() != highest.reindex(exploratory_choice.index).to_numpy()).sum())
     print(f"Gated joint assignment moves off incumbent: {gated_moves} products")
     print(f"Exploratory joint assignment moves off incumbent: {exploratory_moves} products; differs from own highest-scoring option: {exploratory_forced}")
     print(f"\nActionable KPI estimates (500 order-bootstrap resamples):\n{json.dumps(kpis, indent=2)}")

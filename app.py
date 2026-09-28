@@ -301,8 +301,8 @@ def main():
         if scenarios.empty:
             st.info("No historical rows match this filter combination.")
         else:
-            display_frame(scenarios[["candidate_factory", "orders", "units", "new_lead_days", "candidate_distance_km", "new_profit", "profit_impact", "confidence", "capability_gap"]].rename(columns={
-                "candidate_factory": "Factory", "orders": "Historical orders", "units": "Units", "new_lead_days": "Projected lead (days)",
+            display_frame(scenarios[["candidate_factory", "orders", "units", "new_lead_days", "candidate_distance_km", "new_profit", "profit_impact", "risk_score", "confidence", "capability_gap"]].rename(columns={
+                "candidate_factory": "Factory", "orders": "Historical orders", "units": "Units", "new_lead_days": "Projected lead (days)", "risk_score": "Risk score",
                 "candidate_distance_km": "Distance (km)", "new_profit": "Projected gross profit", "profit_impact": "Profit impact", "confidence": "Confidence (%)", "capability_gap": "Capability gap",
             }), height=245)
             top_factory_chart(scenarios, PRODUCT_FACTORY.get(product, ""))
