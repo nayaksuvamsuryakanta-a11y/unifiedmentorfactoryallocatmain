@@ -21,4 +21,6 @@ These moves qualify only if measured carrier speed is at or below the listed bre
 | Wonka Bar - Scrumdiddlyumptious | Lot's O' Nuts | Secret Factory | 1702 | 0.69 | 617.95 |
 | Wonka Bar - Fudge Mallows | Lot's O' Nuts | Secret Factory | 1525 | 0.68 | 615.07 |
 
+The single best-ranked move per product clears both configured gates for 0 products; any move that independently clears both gates for 1 product.
+
 **Measured from the source:** order counts, units, gross profit, repaired historical lead times, and centroid-based distances. **Assumed for scenarios:** freight speed, freight cost, capability penalties, and capacity limits. ZIP centroids covered 95.6% of retained rows; state/province centroids covered 4.4%.

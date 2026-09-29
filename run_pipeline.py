@@ -26,7 +26,7 @@ def markdown_table(frame):
 
 def write_reports(df, metrics, temporal, diagnostic, routes, recommendations,
                   assignment, exploratory_assignment, exploratory_moves, exploratory_forced,
-                  kpis, mc, choice_stability, solver, pilot_shortlist):
+                  kpis, mc, choice_stability, solver, pilot_shortlist, qualifying):
     selected_name=diagnostic["selected_model"]
     best=metrics[(metrics.feature_set=="Full feature set")&(metrics.model==selected_name)].iloc[0]
     temporal_table = pd.DataFrame(temporal).T
@@ -45,6 +45,7 @@ def write_reports(df, metrics, temporal, diagnostic, routes, recommendations,
     actionable = per_product[
         per_product.sufficient_evidence & per_product.materially_better
     ] if len(per_product) else per_product
+    qualifying_product_count = qualifying["product"].nunique()
     joint_map = assignment.set_index("product").factory.to_dict()
     incumbents = df.groupby("product_name").current_factory.agg(lambda s:s.dropna().mode().iloc[0] if s.notna().any() else None)
     differs = [(r.product, r.candidate_factory, joint_map.get(r.product))
@@ -123,6 +124,8 @@ Measured quantities are product-level order/units, observed gross profit and lea
 
 Per-product ranking min-max normalizes lead and profit gain across candidate factories, combines them with the speed/profit weight, and applies capability/confidence discounts. The joint mixed-integer assignment selects one factory per product subject to each factory’s unit capacity. **Solver used: {solver}.** Gated assignment moves **{int((assignment.factory != assignment["product"].map(incumbents)).sum())} products** off incumbents. Exploratory assignment moves **{exploratory_moves}**, with **{exploratory_forced}** differing from their own highest-scoring option due to capacity. This replaces the former comparison, which came from zeroing incumbent scores and allowing moves without evidence or materiality gates.
 
+The single best-ranked move per product clears both configured gates for {actionable['product'].nunique() if len(actionable) else 0} products; any move that independently clears both gates exists for {qualifying_product_count} products. See `artifacts/qualifying_alternatives.csv` for each qualifying alternative and whether it is also the top-scored pick.
+
 Under the current freight model, speed and profit gains are perfectly correlated per product, so the speed/profit control cannot change rankings. A real trade-off requires per-factory cost or freight-rate data absent from the source. Risk weight ({Assumptions.risk_weight:.0%}) is an assumption. Risk averages the capability-gap flag and candidate capacity pressure (product units divided by candidate factory historical units, capped at 1); incumbent risk is zero. Capability gaps affect confidence, the score multiplier, and the risk axis, so these effects stack.
 
 ## Actionable KPIs and uncertainty
@@ -167,6 +170,8 @@ The KPI bootstrap resamples which products pass the order-count gate but does no
 
 {pilot_table}
 
+The single best-ranked move per product clears both configured gates for {actionable['product'].nunique() if len(actionable) else 0} products; any move that independently clears both gates for {qualifying_product_count} products.
+
 **Measured from the source:** order counts, units, gross profit, repaired historical lead times, and centroid-based distances. **Assumed for scenarios:** freight speed, freight cost, capability penalties, and capacity limits. ZIP centroids covered {precise:.1f}% of retained rows; state/province centroids covered {state:.1f}%.
 """
     (ARTIFACT_DIR.parent / "executive_summary.md").write_text(executive, encoding="utf-8")
@@ -184,6 +189,20 @@ def main():
     congestion = congested_region_products(df)
     recommendations = score_products(df, top_n=3)
     all_candidates = score_products(df, top_n=len(FACTORY_COORDS))
+    top_picks = recommendations[~recommendations.is_incumbent].sort_values(
+        "score", ascending=False).drop_duplicates("product").set_index("product").candidate_factory.to_dict()
+    qualifying = all_candidates[
+        (~all_candidates.is_incumbent)
+        & all_candidates.sufficient_evidence.fillna(False)
+        & all_candidates.materially_better.fillna(False)
+    ].copy()
+    qualifying["is_top_scored_pick"] = qualifying.apply(
+        lambda row: top_picks.get(row.product) == row.candidate_factory, axis=1
+    )
+    qualifying = qualifying[["product", "candidate_factory", "lead_gain", "profit_impact",
+                             "capability_gap", "score", "is_top_scored_pick"]].sort_values(
+                                 ["product", "score"], ascending=[True, False]
+                             )
     # Keep this conditional list genuinely below the configured lead-time gate.
     pilot_shortlist=all_candidates[
         (~all_candidates.is_incumbent)
@@ -200,6 +219,7 @@ def main():
         ("routes", routes), ("congested_region_products", congestion), ("recommendations", recommendations),
         ("joint_assignment", assignment), ("joint_assignment_gated", assignment),
         ("joint_assignment_exploratory", exploratory_assignment), ("pilot_shortlist", pilot_shortlist),
+        ("qualifying_alternatives", qualifying),
         ("ablation", diagnostic["ablation"]),
         ("model_selection", diagnostic["model_selection"]),
         ("mode_slopes", diagnostic["mode_slopes"]),
@@ -256,7 +276,7 @@ def main():
     print(f"\nMonte Carlo: {len(mc)} draws; lead-reduction KPI mean={mc_summary['mean']:.2f}%, median={mc_summary['50%']:.2f}%, 5th-95th=[{mc_summary['5%']:.2f}%, {mc_summary['95%']:.2f}%]; mean factory-choice agreement with default assumptions={mean_stability:.1f}%.")
     write_reports(df, model_report, temporal, diagnostic, routes, recommendations,
                   assignment, exploratory_assignment, exploratory_moves, exploratory_forced,
-                  kpis, mc, mean_stability, assignment.attrs.get("solver", "unknown"), pilot_shortlist)
+                  kpis, mc, mean_stability, assignment.attrs.get("solver", "unknown"), pilot_shortlist, qualifying)
     print(f"Reports written: {ARTIFACT_DIR.parent / 'research_paper.md'}, {ARTIFACT_DIR.parent / 'executive_summary.md'}")
     print(f"Artifacts saved to {ARTIFACT_DIR}")
 
