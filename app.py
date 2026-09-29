@@ -6,7 +6,6 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import pydeck as pdk
 import streamlit as st
 
 from config import ARTIFACT_DIR, FACTORY_COORDS, PRODUCT_FACTORY, Assumptions
@@ -24,7 +23,6 @@ FACTORY_COLORS = {
     "Secret Factory": [247, 120, 196],
     "The Other Factory": [255, 211, 77],
 }
-MAP_STYLE_URL = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json"
 
 st.set_page_config(page_title="Nassau Candy | Factory Allocation", page_icon="🍬", layout="wide")
 
@@ -156,32 +154,34 @@ def factory_map_data():
     ])
 
 
-def build_factory_deck():
+def factory_map_figure():
     map_data = factory_map_data()
-    layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=map_data,
-        get_position="[longitude, latitude]",
-        get_fill_color="color",
-        get_line_color=[245, 245, 245, 210],
-        get_radius=62000,
-        line_width_min_pixels=2,
-        stroked=True,
-        filled=True,
-        pickable=True,
-    )
-    return pdk.Deck(
-        layers=[layer],
-        initial_view_state=pdk.ViewState(latitude=39.0, longitude=-98.0, zoom=3, pitch=0),
-        map_provider="carto",
-        map_style=MAP_STYLE_URL,
-        tooltip={"text": "{factory}"},
-    )
+    fig, ax = plt.subplots(figsize=(10, 5.2), facecolor=BG)
+    ax.set_facecolor(BG)
+    for row in map_data.itertuples():
+        color = "#%02x%02x%02x" % tuple(row.color)
+        ax.scatter(row.longitude, row.latitude, s=115, color=color,
+                   edgecolors="#f5f5f5", linewidths=1.1, zorder=3)
+        ax.annotate(row.factory, (row.longitude, row.latitude), xytext=(8, 7),
+                    textcoords="offset points", color=TEXT, fontsize=9,
+                    ha="left", va="bottom")
+    ax.set_xlabel("Longitude", color=TEXT)
+    ax.set_ylabel("Latitude", color=TEXT)
+    ax.tick_params(colors=TEXT)
+    ax.grid(color="#343434", linewidth=.7, alpha=.8)
+    ax.set_axisbelow(True)
+    ax.set_xlim(-120, -72)
+    ax.set_ylim(27, 54)
+    for spine in ax.spines.values():
+        spine.set_color("#444444")
+    fig.tight_layout()
+    return fig
 
 
 def factory_map():
-    deck = build_factory_deck()
-    st.pydeck_chart(deck, **stretch_width())
+    fig = factory_map_figure()
+    st.pyplot(fig, **stretch_width())
+    plt.close(fig)
     st.caption("Factory markers: 🟠 Lot's O' Nuts · 🔹 Wicked Choccy's · 🟢 Sugar Shack · 🟣 Secret Factory · 🟡 The Other Factory")
 
 
