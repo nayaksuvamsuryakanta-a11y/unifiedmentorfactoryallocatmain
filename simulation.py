@@ -27,6 +27,8 @@ def score_products(df,assumptions=Assumptions,top_n=3,reference_df=None):
             dist=float(np.average(g[f"distance_{factory}"],weights=g.units.clip(lower=1)))
             delta_dist=dist-current_dist # measured from supplied locations and customer coordinates
             delta_lead=delta_dist/assumptions.freight_speed_km_day # assumed freight-speed conversion
+            breakeven_speed=(-delta_dist/assumptions.min_material_days
+                if delta_dist<0 and assumptions.min_material_days>0 else np.nan)
             delta_cost=total_units*delta_dist/1000*assumptions.freight_cost_per_unit_per_1000km # assumed cost
             cap_gap=factory!=current and prod_div.get(factory,0)==0
             capacity_pressure=min(1.0,total_units/max(float(factory_units.get(factory,0.0)),1.0))
@@ -34,7 +36,7 @@ def score_products(df,assumptions=Assumptions,top_n=3,reference_df=None):
             risk_reduction=-risk_score
             # Confidence is evidence/stability minus the explicit capability-gap penalty.
             conf=max(0,min(99,base_conf-(100*assumptions.capability_gap_penalty if cap_gap else 0)))
-            candidates.append(dict(product=product,current_factory=current,candidate_factory=factory,is_incumbent=factory==current,orders=n,units=total_units,baseline_lead_days=baseline,baseline_profit=base_profit,current_distance_km=current_dist,candidate_distance_km=dist,delta_distance_km=delta_dist,delta_lead_days=delta_lead,new_lead_days=baseline+delta_lead,delta_cost=delta_cost,profit_impact=-delta_cost,new_profit=base_profit-delta_cost,confidence=conf,capability_gap=bool(cap_gap),risk_score=risk_score,risk_reduction=risk_reduction,evidence_score=evidence,stability_score=stability))
+            candidates.append(dict(product=product,current_factory=current,candidate_factory=factory,is_incumbent=factory==current,orders=n,units=total_units,baseline_lead_days=baseline,baseline_profit=base_profit,current_distance_km=current_dist,candidate_distance_km=dist,delta_distance_km=delta_dist,delta_lead_days=delta_lead,new_lead_days=baseline+delta_lead,delta_cost=delta_cost,profit_impact=-delta_cost,new_profit=base_profit-delta_cost,breakeven_freight_speed_km_day=breakeven_speed,confidence=conf,capability_gap=bool(cap_gap),risk_score=risk_score,risk_reduction=risk_reduction,evidence_score=evidence,stability_score=stability))
         c=pd.DataFrame(candidates)
         c["lead_gain"]=-c.delta_lead_days; c["profit_gain"]=c.profit_impact
         # For each product, both gains are positive multiples of the same distance-change vector;
@@ -55,10 +57,10 @@ def joint_optimize(recs,df,assumptions=Assumptions,gated=True):
     capacity=df.groupby("current_factory").units.sum().reindex(factories,fill_value=0)*assumptions.capacity_multiplier
     table=recs.sort_values("score",ascending=False).drop_duplicates(["product","candidate_factory"])
     if "is_incumbent" not in table:
-        table["is_incumbent"]=table.apply(lambda r: r.candidate_factory==PRODUCT_FACTORY.get(r.product),axis=1)
+        table["is_incumbent"]=table.apply(lambda r: r["candidate_factory"]==PRODUCT_FACTORY.get(r["product"]),axis=1)
     if gated:
-        sufficient=table.sufficient_evidence.fillna(True) if "sufficient_evidence" in table else pd.Series(True,index=table.index)
-        material=table.materially_better.fillna(True) if "materially_better" in table else pd.Series(True,index=table.index)
+        sufficient=table.sufficient_evidence.fillna(False).astype(bool) if "sufficient_evidence" in table else pd.Series(False,index=table.index)
+        material=table.materially_better.fillna(False).astype(bool) if "materially_better" in table else pd.Series(False,index=table.index)
         table=table[table.is_incumbent.fillna(False) | (sufficient & material)]
     options={(r.product,r.candidate_factory):float(r.score) for r in table.itertuples()}
     # incumbent always available with neutral objective

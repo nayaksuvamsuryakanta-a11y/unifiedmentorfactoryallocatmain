@@ -113,8 +113,14 @@ The engine sampled **300** draws over freight speed 400–1,600 km/day and freig
 
 The KPI bootstrap resamples which products pass the order-count gate but does not re-estimate lead or profit deltas. Historical lead time reflects ship mode and observed order behavior, not isolated factory transit time. Destination centroids, missing shipping charges, capability gaps, and assumed speed/cost make scenario predictions exploratory. Temporal performance is worse than random validation. Before operational transfers, run controlled pilots with actual carrier, route, ship date, and freight invoice data. Until evidence and materiality gates are met, retain current assignments and collect those measurements.
 
-## Recommendation table
+## Conditional pilot shortlist
 
-| Current decision | Recommendation | Evidence |
-|---|---|---|
-| Retain current factory assignments | No move currently clears both evidence and material-improvement gates | No actionable products at configured thresholds |
+These moves qualify only if measured carrier speed is at or below the listed break-even value, so measure it in a pilot.
+
+| product | current_factory | candidate_factory | orders | lead_gain | breakeven_freight_speed_km_day |
+| --- | --- | --- | --- | --- | --- |
+| Laffy Taffy | Sugar Shack | The Other Factory | 10 | 0.82 | 737.46 |
+| Laffy Taffy | Sugar Shack | Secret Factory | 10 | 0.72 | 644.5 |
+| Wonka Bar - Nutty Crunch Surprise | Lot's O' Nuts | Secret Factory | 1524 | 0.71 | 637.78 |
+| Wonka Bar - Scrumdiddlyumptious | Lot's O' Nuts | Secret Factory | 1702 | 0.69 | 617.95 |
+| Wonka Bar - Fudge Mallows | Lot's O' Nuts | Secret Factory | 1525 | 0.68 | 615.07 |

@@ -4,7 +4,7 @@ Decision support for testing whether assigning products to alternative factories
 
 ## Requirements and run
 
-Pinned dependencies support Python 3.11, 3.12, and 3.14. Local verification used Python 3.14.0; CI covers all three versions. From this directory:
+Pinned dependencies support Python 3.11, 3.12, and 3.14. Local verification used Python 3.14.0; CI will check Python 3.11, 3.12, and 3.14 once pushed. From this directory:
 
 ```powershell
 python -m venv .venv

@@ -301,8 +301,8 @@ def main():
         if scenarios.empty:
             st.info("No historical rows match this filter combination.")
         else:
-            display_frame(scenarios[["candidate_factory", "orders", "units", "new_lead_days", "candidate_distance_km", "new_profit", "profit_impact", "risk_score", "confidence", "capability_gap"]].rename(columns={
-                "candidate_factory": "Factory", "orders": "Historical orders", "units": "Units", "new_lead_days": "Projected lead (days)", "risk_score": "Risk score",
+            display_frame(scenarios[["candidate_factory", "orders", "units", "new_lead_days", "candidate_distance_km", "new_profit", "profit_impact", "risk_score", "breakeven_freight_speed_km_day", "confidence", "capability_gap"]].rename(columns={
+                "candidate_factory": "Factory", "orders": "Historical orders", "units": "Units", "new_lead_days": "Projected lead (days)", "risk_score": "Risk score", "breakeven_freight_speed_km_day": "Break-even speed (km/day)",
                 "candidate_distance_km": "Distance (km)", "new_profit": "Projected gross profit", "profit_impact": "Profit impact", "confidence": "Confidence (%)", "capability_gap": "Capability gap",
             }), height=245)
             top_factory_chart(scenarios, PRODUCT_FACTORY.get(product, ""))
@@ -344,6 +344,10 @@ def main():
         st.subheader("Ranked product assignments")
         mode = st.radio("Assignment mode", ["Per-product best option", "Globally optimal joint assignment"], horizontal=True)
         actionable_only = st.checkbox("Actionable only", value=False)
+        st.markdown("#### Conditional pilot shortlist")
+        st.caption("Not actionable at the default assumptions; qualifies only if measured freight speed is at or below the break-even value.")
+        pilot = load_table("pilot_shortlist.csv").head(5)
+        display_frame(pilot[["product", "current_factory", "candidate_factory", "orders", "lead_gain", "breakeven_freight_speed_km_day"]], height=245)
         if mode == "Per-product best option":
             candidates = score_products(orders, assumptions=assumptions, top_n=len(FACTORY_COORDS))
             candidates = candidates[~candidates.is_incumbent]
@@ -369,7 +373,7 @@ def main():
             view = add_recommendation_status(view)
         if actionable_only:
             view = view[view.sufficient_evidence.fillna(False) & view.materially_better.fillna(False)]
-        cols = [c for c in ["product", "current_factory", "candidate_factory", "orders", "units", "delta_distance_km", "delta_lead_days", "profit_impact", "risk_score", "confidence", "score", "evidence_status", "improvement_status", "capability_gap", "status"] if c in view]
+        cols = [c for c in ["product", "current_factory", "candidate_factory", "orders", "units", "delta_distance_km", "delta_lead_days", "profit_impact", "risk_score", "breakeven_freight_speed_km_day", "confidence", "score", "evidence_status", "improvement_status", "capability_gap", "status"] if c in view]
         display_frame(view[cols].rename(columns={
             "product": "Product", "current_factory": "Current factory", "candidate_factory": "Recommended factory", "orders": "Orders", "units": "Units",
             "delta_distance_km": "Δ distance (km)", "delta_lead_days": "Δ lead (days)", "profit_impact": "Profit impact", "confidence": "Confidence (%)",

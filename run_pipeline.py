@@ -26,7 +26,7 @@ def markdown_table(frame):
 
 def write_reports(df, metrics, temporal, diagnostic, routes, recommendations,
                   assignment, exploratory_assignment, exploratory_moves, exploratory_forced,
-                  kpis, mc, choice_stability, solver):
+                  kpis, mc, choice_stability, solver, pilot_shortlist):
     selected_name=diagnostic["selected_model"]
     best=metrics[(metrics.feature_set=="Full feature set")&(metrics.model==selected_name)].iloc[0]
     temporal_table = pd.DataFrame(temporal).T
@@ -63,12 +63,12 @@ def write_reports(df, metrics, temporal, diagnostic, routes, recommendations,
     rebuilt.loc[rebuilt < df.order_date] += pd.DateOffset(years=1)
     residual_offset = int((rebuilt - df.order_date).dt.days.min())
     mc_summary = mc.lead_time_reduction_pct.describe(percentiles=[.05, .5, .95])
-    recommendation_rows = (actionable.sort_values("score", ascending=False)
-                           .drop_duplicates("product").head(12))
-    if recommendation_rows.empty:
-        rec_table = "| Current decision | Recommendation | Evidence |\n|---|---|---|\n| Retain current factory assignments | No move currently clears both evidence and material-improvement gates | No actionable products at configured thresholds |"
+    pilot_rows=pilot_shortlist.head(5)
+    if pilot_rows.empty:
+        pilot_table="(No evidence-qualified distance-reducing alternatives are in the shortlist.)"
     else:
-        rec_table = markdown_table(recommendation_rows[["product", "candidate_factory", "lead_gain", "profit_impact", "risk_score", "confidence"]].round(2))
+        pilot_table=markdown_table(pilot_rows[["product","current_factory","candidate_factory","orders","lead_gain","breakeven_freight_speed_km_day"]].round(2))
+    pilot_sentence="These moves qualify only if measured carrier speed is at or below the listed break-even value, so measure it in a pilot."
     paper = f"""# Factory Reallocation & Shipping Optimization: Nassau Candy Distributor
 
 ## Abstract
@@ -143,9 +143,11 @@ The engine sampled **{len(mc)}** draws over freight speed 400–1,600 km/day and
 
 The KPI bootstrap resamples which products pass the order-count gate but does not re-estimate lead or profit deltas. Historical lead time reflects ship mode and observed order behavior, not isolated factory transit time. Destination centroids, missing shipping charges, capability gaps, and assumed speed/cost make scenario predictions exploratory. Temporal performance is worse than random validation. Before operational transfers, run controlled pilots with actual carrier, route, ship date, and freight invoice data. Until evidence and materiality gates are met, retain current assignments and collect those measurements.
 
-## Recommendation table
+## Conditional pilot shortlist
 
-{rec_table}
+{pilot_sentence}
+
+{pilot_table}
 """
     (ARTIFACT_DIR.parent / "research_paper.md").write_text(paper, encoding="utf-8")
     executive = f"""# Executive summary: Nassau Candy factory allocation
@@ -154,10 +156,16 @@ The KPI bootstrap resamples which products pass the order-count gate but does no
 
 | Decision | Recommendation | Why |
 |---|---|---|
-| Factory changes | Keep current assignments for now | {actionable['product'].nunique() if len(actionable) else 0} top-ranked moves met both the evidence and material-improvement thresholds |
+| Factory changes | Keep current assignments unless a pilot validates a shortlisted move | {actionable['product'].nunique() if len(actionable) else 0} top-ranked moves meet both default evidence and material-improvement thresholds |
 | Next step | Pilot selected routes with actual carrier and invoice data | Current distance-to-time and freight-cost conversions are assumptions |
 | Data improvement | Record carrier, origin, destination, ship date, delivery date, and freight charge | Enables direct measurement of transit and cost by route |
 | Risk review | Investigate the highest-exposure slow routes in `artifacts/routes.csv` | Route profiles identify operational lanes for measurement |
+
+### Break-even pilot shortlist
+
+{pilot_sentence}
+
+{pilot_table}
 
 **Measured from the source:** order counts, units, gross profit, repaired historical lead times, and centroid-based distances. **Assumed for scenarios:** freight speed, freight cost, capability penalties, and capacity limits. ZIP centroids covered {precise:.1f}% of retained rows; state/province centroids covered {state:.1f}%.
 """
@@ -176,6 +184,13 @@ def main():
     congestion = congested_region_products(df)
     recommendations = score_products(df, top_n=3)
     all_candidates = score_products(df, top_n=len(FACTORY_COORDS))
+    # Keep this conditional list genuinely below the configured lead-time gate.
+    pilot_shortlist=all_candidates[
+        (~all_candidates.is_incumbent)
+        & all_candidates.sufficient_evidence.fillna(False)
+        & (all_candidates.delta_distance_km<0)
+        & (~all_candidates.materially_better.fillna(False))
+    ].sort_values("breakeven_freight_speed_km_day",ascending=False)
     assignment = joint_optimize(all_candidates, df, gated=True)
     exploratory_assignment = joint_optimize(all_candidates, df, gated=False)
     kpis = compute_kpis(recommendations, df.product_name.nunique(), order_frame=df)
@@ -184,7 +199,8 @@ def main():
         ("model_metrics", model_report), ("permutation_importance", importance),
         ("routes", routes), ("congested_region_products", congestion), ("recommendations", recommendations),
         ("joint_assignment", assignment), ("joint_assignment_gated", assignment),
-        ("joint_assignment_exploratory", exploratory_assignment), ("ablation", diagnostic["ablation"]),
+        ("joint_assignment_exploratory", exploratory_assignment), ("pilot_shortlist", pilot_shortlist),
+        ("ablation", diagnostic["ablation"]),
         ("model_selection", diagnostic["model_selection"]),
         ("mode_slopes", diagnostic["mode_slopes"]),
         ("distance_residual_bins", diagnostic["residual_distance"]),
@@ -215,6 +231,7 @@ def main():
     exploratory_forced = int((exploratory_choice.to_numpy() != highest.reindex(exploratory_choice.index).to_numpy()).sum())
     print(f"Gated joint assignment moves off incumbent: {gated_moves} products")
     print(f"Exploratory joint assignment moves off incumbent: {exploratory_moves} products; differs from own highest-scoring option: {exploratory_forced}")
+    print("\nConditional pilot shortlist (top 5 by break-even speed):\n", pilot_shortlist[["product","candidate_factory","orders","lead_gain","breakeven_freight_speed_km_day"]].head(5).round(2).to_string(index=False))
     print(f"\nActionable KPI estimates (500 order-bootstrap resamples):\n{json.dumps(kpis, indent=2)}")
     baseline_choices = score_products(df, top_n=1)
     baseline_choices = baseline_choices[~baseline_choices.is_incumbent].set_index("product").candidate_factory.to_dict()
@@ -239,7 +256,7 @@ def main():
     print(f"\nMonte Carlo: {len(mc)} draws; lead-reduction KPI mean={mc_summary['mean']:.2f}%, median={mc_summary['50%']:.2f}%, 5th-95th=[{mc_summary['5%']:.2f}%, {mc_summary['95%']:.2f}%]; mean factory-choice agreement with default assumptions={mean_stability:.1f}%.")
     write_reports(df, model_report, temporal, diagnostic, routes, recommendations,
                   assignment, exploratory_assignment, exploratory_moves, exploratory_forced,
-                  kpis, mc, mean_stability, assignment.attrs.get("solver", "unknown"))
+                  kpis, mc, mean_stability, assignment.attrs.get("solver", "unknown"), pilot_shortlist)
     print(f"Reports written: {ARTIFACT_DIR.parent / 'research_paper.md'}, {ARTIFACT_DIR.parent / 'executive_summary.md'}")
     print(f"Artifacts saved to {ARTIFACT_DIR}")
 

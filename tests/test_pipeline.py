@@ -58,7 +58,8 @@ def test_joint_optimizer_falls_back_when_pulp_import_fails(monkeypatch):
         return original_import(name,*args,**kwargs)
     monkeypatch.setattr(builtins,"__import__",without_pulp)
     products=list(PRODUCT_FACTORY)[:2]
-    rows=[{"product":p,"candidate_factory":f,"score":1.0 if f==PRODUCT_FACTORY[p] else .5}
+    rows=[{"product":p,"candidate_factory":f,"score":1.0 if f==PRODUCT_FACTORY[p] else .5,
+           "is_incumbent":f==PRODUCT_FACTORY[p],"sufficient_evidence":True,"materially_better":True}
           for p in products for f in FACTORY_COORDS]
     orders=pd.DataFrame({"product_name":products,"units":[10,10],"current_factory":[PRODUCT_FACTORY[p] for p in products]})
     result=joint_optimize(pd.DataFrame(rows),orders)
@@ -70,7 +71,8 @@ def test_joint_optimizer_falls_back_when_pulp_solver_raises(monkeypatch):
     def failed_solve(*args,**kwargs): raise RuntimeError("simulated CBC failure")
     monkeypatch.setattr(pulp.LpProblem,"solve",failed_solve)
     products=list(PRODUCT_FACTORY)[:2]
-    rows=[{"product":p,"candidate_factory":f,"score":1.0 if f==PRODUCT_FACTORY[p] else .5}
+    rows=[{"product":p,"candidate_factory":f,"score":1.0 if f==PRODUCT_FACTORY[p] else .5,
+           "is_incumbent":f==PRODUCT_FACTORY[p],"sufficient_evidence":True,"materially_better":True}
           for p in products for f in FACTORY_COORDS]
     orders=pd.DataFrame({"product_name":products,"units":[10,10],"current_factory":[PRODUCT_FACTORY[p] for p in products]})
     result=joint_optimize(pd.DataFrame(rows),orders)
@@ -88,6 +90,8 @@ def _scoring_fixture():
     for i in range(10):
         row={"product_name":product,"order_id":i,"units":1,"lead_time_days":2+i%2,"gross_profit":10.,"division":"Candy","current_factory":PRODUCT_FACTORY[product]}
         for j,factory in enumerate(FACTORY_COORDS): row[f"distance_{factory}"]=100.+j*300.
+        row[f"distance_{PRODUCT_FACTORY[product]}"]=1000.
+        row["distance_Wicked Choccy's"]=100.
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -110,12 +114,49 @@ def test_score_products_keeps_one_incumbent_row_and_invariant_weights():
     b=profit.set_index("candidate_factory").score.sort_index().to_numpy()
     assert np.allclose(a,b)
 
+def test_breakeven_speed_reaches_material_lead_gain():
+    frame=_scoring_fixture()
+    scored=score_products(frame,_assumptions(.5),top_n=len(FACTORY_COORDS))
+    move=scored[(~scored.is_incumbent)&(scored.candidate_factory=="Wicked Choccy's")].iloc[0]
+    assert np.isclose(move.breakeven_freight_speed_km_day,-move.delta_distance_km/1.0)
+    at_break_even=_assumptions(.5)
+    at_break_even.freight_speed_km_day=move.breakeven_freight_speed_km_day
+    verified=score_products(frame,at_break_even,top_n=len(FACTORY_COORDS))
+    verified_move=verified[(~verified.is_incumbent)&(verified.candidate_factory=="Wicked Choccy's")].iloc[0]
+    assert np.isclose(verified_move.lead_gain,at_break_even.min_material_days)
+    non_improving=scored[scored.delta_distance_km>=0]
+    assert non_improving.breakeven_freight_speed_km_day.isna().all()
+
 def test_gated_joint_optimizer_keeps_incumbents_when_no_move_is_material():
     frame=_scoring_fixture()
     recs=score_products(frame,_assumptions(.5),top_n=len(FACTORY_COORDS))
     recs["materially_better"]=False
     result=joint_optimize(recs,frame,gated=True)
     assert result.factory.tolist()==[PRODUCT_FACTORY[frame.product_name.iloc[0]]]
+
+def test_gated_joint_optimizer_treats_missing_or_nan_flags_as_not_passing():
+    products=list(PRODUCT_FACTORY)[:2]
+    rows=[]
+    for p in products:
+        for f in FACTORY_COORDS:
+            incumbent=f==PRODUCT_FACTORY[p]
+            rows.append({"product":p,"candidate_factory":f,"is_incumbent":incumbent,
+                "score":1.0 if not incumbent else .1,
+                "sufficient_evidence":True,"materially_better":True})
+    recs=pd.DataFrame(rows)
+    recs["sufficient_evidence"]=recs.sufficient_evidence.astype(object)
+    recs["materially_better"]=recs.materially_better.astype(object)
+    # NaN in either gate blocks that product's alternatives.
+    alt=recs.candidate_factory!=recs["product"].map(PRODUCT_FACTORY)
+    recs.loc[alt&(recs["product"]==products[0]),"sufficient_evidence"]=np.nan
+    recs.loc[alt&(recs["product"]==products[1]),"materially_better"]=np.nan
+    orders=pd.DataFrame({"product_name":products,"units":[10,10],
+        "current_factory":[PRODUCT_FACTORY[p] for p in products]})
+    result=joint_optimize(recs,orders,gated=True)
+    assigned=result.set_index("product").factory
+    assert all(assigned[p]==PRODUCT_FACTORY[p] for p in products)
+    missing_column=joint_optimize(recs.drop(columns="sufficient_evidence"),orders,gated=True).set_index("product").factory
+    assert all(missing_column[p]==PRODUCT_FACTORY[p] for p in products)
 
 def test_joint_optimizer_capacity_respected_in_both_modes():
     products=list(PRODUCT_FACTORY)[:2]
