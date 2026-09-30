@@ -23,6 +23,10 @@ The dashboard includes the filtered factory simulator, one-move comparison, cata
 
 ZIP/postal centroids are stored in `data/reference/zip_centroids.csv` with source metadata (`pgeocode 0.5.0 / GeoNames postal dataset`). The pipeline reads this static file only and makes no network calls. Unresolved postal codes use the user-supplied state/province centroid table in `config.py`. If rebuilding the reference file, pgeocode is optional and should only be used for that one-time offline acquisition; it is not a runtime dependency. Distances use Haversine great-circle calculations from centroids, not actual carrier routes.
 
+## Map boundaries
+
+Factory-map outlines are checked in under `data/reference/` as plain GeoJSON: Natural Earth 1:110m Admin 0 country boundaries for Canada, the United States, and Mexico, plus 1:110m Admin 1 boundaries for the 50 U.S. states and D.C. Acquired 2026-09-30 from the [Admin 0 countries GeoJSON](https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_110m_admin_0_countries.geojson) and [Admin 1 states/provinces GeoJSON](https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_110m_admin_1_states_provinces.geojson) at mirror commit `ca96624a56bd078437bca8184e78163e5039ad19` (2022-06-02). Natural Earth vector data is public domain ([terms of use](https://www.naturalearthdata.com/about/terms-of-use/)). The dashboard reads these local files with Python's standard `json` module; map rendering makes no runtime network fetch.
+
 ## Interpretation
 
 Measured/calculated from the source: order count, units, gross profit, repaired historical lead time, ship mode, destination centroid, and distance from the supplied factory coordinates. Assumptions configured in `config.py`: freight speed and cost, capability-gap penalty, evidence/materiality thresholds, capacity multiplier, ranking weight, and Monte Carlo iterations. A scenario's predicted lead/profit deltas depend on those assumptions and should be treated as planning estimates pending route pilots.

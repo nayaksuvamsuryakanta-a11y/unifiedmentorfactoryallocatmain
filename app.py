@@ -6,7 +6,6 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
 from config import ARTIFACT_DIR, FACTORY_COORDS, PRODUCT_FACTORY, Assumptions
@@ -155,63 +154,64 @@ def factory_map_data():
     ])
 
 
+@st.cache_data(show_spinner=False)
+def load_factory_boundaries():
+    # Sources: https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_110m_admin_0_countries.geojson
+    #          https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_110m_admin_1_states_provinces.geojson
+    # Natural Earth 1:110m, mirror commit dated 2022-06-02; public domain.
+    reference_dir = ROOT / "data" / "reference"
+    countries = json.loads((reference_dir / "natural_earth_admin0_110m.geojson").read_text(encoding="utf-8"))
+    states = json.loads((reference_dir / "natural_earth_us_admin1_110m.geojson").read_text(encoding="utf-8"))
+    return countries["features"], states["features"]
+
+
+def plot_boundary_features(ax, features, color, linewidth, zorder):
+    for feature in features:
+        geometry = feature["geometry"]
+        polygons = geometry["coordinates"] if geometry["type"] == "MultiPolygon" else [geometry["coordinates"]]
+        for polygon in polygons:
+            for ring in polygon:
+                ax.plot(
+                    [point[0] for point in ring],
+                    [point[1] for point in ring],
+                    color=color,
+                    linewidth=linewidth,
+                    zorder=zorder,
+                )
+
+
 def factory_map_figure():
     map_data = factory_map_data()
-    fig = go.Figure()
+    countries, states = load_factory_boundaries()
+    fig, ax = plt.subplots(figsize=(10, 5.2), facecolor=BG)
+    ax.set_facecolor(BG)
+    plot_boundary_features(ax, countries, color="#4a4a4a", linewidth=.8, zorder=1)
+    plot_boundary_features(ax, states, color="#3f3f3f", linewidth=.65, zorder=2)
     for row in map_data.itertuples():
         color = "#%02x%02x%02x" % tuple(row.color)
-        fig.add_trace(go.Scattergeo(
-            lat=[row.latitude],
-            lon=[row.longitude],
-            mode="markers+text",
-            name=row.factory,
-            text=[row.factory],
-            textposition="top right",
-            textfont={"color": TEXT, "size": 11},
-            hovertext=[f"{row.factory}<br>Latitude: {row.latitude:.2f}<br>Longitude: {row.longitude:.2f}"],
-            hovertemplate="%{hovertext}<extra></extra>",
-            marker={
-                "color": color,
-                "size": 12,
-                "line": {"color": TEXT, "width": 1},
-            },
-        ))
-    fig.update_geos(
-        scope="usa",
-        showcountries=True,
-        showsubunits=True,
-        showcoastlines=True,
-        showlakes=True,
-        bgcolor=BG,
-        oceancolor=BG,
-        lakecolor=PANEL,
-        landcolor=PANEL,
-        countrycolor=TEXT,
-        subunitcolor="#444444",
-    )
-    fig.update_layout(
-        paper_bgcolor=BG,
-        plot_bgcolor=BG,
-        font_color=TEXT,
-        height=520,
-        margin={"l": 0, "r": 0, "t": 12, "b": 64},
-        legend={
-            "orientation": "h",
-            "x": 0.5,
-            "xanchor": "center",
-            "y": 0,
-            "yanchor": "bottom",
-            "bgcolor": PANEL,
-            "bordercolor": "#444444",
-            "borderwidth": 1,
-        },
-    )
+        ax.scatter(row.longitude, row.latitude, s=115, color=color,
+                   edgecolors=TEXT, linewidths=1.1, zorder=3)
+        ax.annotate(row.factory, (row.longitude, row.latitude), xytext=(8, 7),
+                    textcoords="offset points", color=TEXT, fontsize=9,
+                    ha="left", va="bottom", zorder=4)
+    ax.set_xlabel("Longitude", color=TEXT)
+    ax.set_ylabel("Latitude", color=TEXT)
+    ax.tick_params(colors=TEXT)
+    ax.grid(color="#343434", linewidth=.7, alpha=.8)
+    ax.set_axisbelow(True)
+    ax.set_xlim(-126, -65)
+    ax.set_ylim(23, 51)
+    ax.set_aspect(1.28, adjustable="box")
+    for spine in ax.spines.values():
+        spine.set_color("#444444")
+    fig.tight_layout()
     return fig
 
 
 def factory_map():
     fig = factory_map_figure()
-    st.plotly_chart(fig, **stretch_width())
+    st.pyplot(fig, **stretch_width())
+    plt.close(fig)
     st.caption("Factory markers: Lot's O' Nuts · Wicked Choccy's · Sugar Shack · Secret Factory · The Other Factory")
 
 
