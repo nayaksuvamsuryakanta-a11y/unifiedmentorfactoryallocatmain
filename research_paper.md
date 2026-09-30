@@ -126,5 +126,3 @@ These moves qualify only if measured carrier speed is at or below the listed bre
 | Wonka Bar - Nutty Crunch Surprise | Lot's O' Nuts | Secret Factory | 1524 | 0.71 | 637.78 |
 | Wonka Bar - Scrumdiddlyumptious | Lot's O' Nuts | Secret Factory | 1702 | 0.69 | 617.95 |
 | Wonka Bar - Fudge Mallows | Lot's O' Nuts | Secret Factory | 1525 | 0.68 | 615.07 |
-
-The single best-ranked move per product clears both configured gates for 0 products; any move that independently clears both gates for 1 products.
