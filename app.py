@@ -6,6 +6,7 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 from config import ARTIFACT_DIR, FACTORY_COORDS, PRODUCT_FACTORY, Assumptions
@@ -156,33 +157,62 @@ def factory_map_data():
 
 def factory_map_figure():
     map_data = factory_map_data()
-    fig, ax = plt.subplots(figsize=(10, 5.2), facecolor=BG)
-    ax.set_facecolor(BG)
+    fig = go.Figure()
     for row in map_data.itertuples():
         color = "#%02x%02x%02x" % tuple(row.color)
-        ax.scatter(row.longitude, row.latitude, s=115, color=color,
-                   edgecolors="#f5f5f5", linewidths=1.1, zorder=3)
-        ax.annotate(row.factory, (row.longitude, row.latitude), xytext=(8, 7),
-                    textcoords="offset points", color=TEXT, fontsize=9,
-                    ha="left", va="bottom")
-    ax.set_xlabel("Longitude", color=TEXT)
-    ax.set_ylabel("Latitude", color=TEXT)
-    ax.tick_params(colors=TEXT)
-    ax.grid(color="#343434", linewidth=.7, alpha=.8)
-    ax.set_axisbelow(True)
-    ax.set_xlim(-120, -72)
-    ax.set_ylim(27, 54)
-    for spine in ax.spines.values():
-        spine.set_color("#444444")
-    fig.tight_layout()
+        fig.add_trace(go.Scattergeo(
+            lat=[row.latitude],
+            lon=[row.longitude],
+            mode="markers+text",
+            name=row.factory,
+            text=[row.factory],
+            textposition="top right",
+            textfont={"color": TEXT, "size": 11},
+            hovertext=[f"{row.factory}<br>Latitude: {row.latitude:.2f}<br>Longitude: {row.longitude:.2f}"],
+            hovertemplate="%{hovertext}<extra></extra>",
+            marker={
+                "color": color,
+                "size": 12,
+                "line": {"color": TEXT, "width": 1},
+            },
+        ))
+    fig.update_geos(
+        scope="usa",
+        showcountries=True,
+        showsubunits=True,
+        showcoastlines=True,
+        showlakes=True,
+        bgcolor=BG,
+        oceancolor=BG,
+        lakecolor=PANEL,
+        landcolor=PANEL,
+        countrycolor=TEXT,
+        subunitcolor="#444444",
+    )
+    fig.update_layout(
+        paper_bgcolor=BG,
+        plot_bgcolor=BG,
+        font_color=TEXT,
+        height=520,
+        margin={"l": 0, "r": 0, "t": 12, "b": 64},
+        legend={
+            "orientation": "h",
+            "x": 0.5,
+            "xanchor": "center",
+            "y": 0,
+            "yanchor": "bottom",
+            "bgcolor": PANEL,
+            "bordercolor": "#444444",
+            "borderwidth": 1,
+        },
+    )
     return fig
 
 
 def factory_map():
     fig = factory_map_figure()
-    st.pyplot(fig, **stretch_width())
-    plt.close(fig)
-    st.caption("Factory markers: 🟠 Lot's O' Nuts · 🔹 Wicked Choccy's · 🟢 Sugar Shack · 🟣 Secret Factory · 🟡 The Other Factory")
+    st.plotly_chart(fig, **stretch_width())
+    st.caption("Factory markers: Lot's O' Nuts · Wicked Choccy's · Sugar Shack · Secret Factory · The Other Factory")
 
 
 def speed_curve(row, selected_speed):
