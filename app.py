@@ -23,6 +23,23 @@ FACTORY_COLORS = {
     "Secret Factory": [247, 120, 196],
     "The Other Factory": [255, 211, 77],
 }
+REQUIRED_ARTIFACTS = {
+    "prepared_orders.csv": ["order_id", "product_name", "ship_mode", "region", "lead_time_days"],
+    "recommendations.csv": ["product", "current_factory", "candidate_factory", "score"],
+    "kpis.json": ["point", "ci"],
+    "joint_assignment_gated.csv": ["product", "factory", "units"],
+    "joint_assignment_exploratory.csv": ["product", "factory", "units"],
+    "routes.csv": ["current_factory", "region", "problem_route", "exposure"],
+    "congested_region_products.csv": ["region", "product_name", "congested"],
+    "ablation.csv": ["geocoding_distance", "feature_set", "cv_r2_mean"],
+    "mode_slopes.csv": ["ship_mode", "slope_days_per_km", "p_value"],
+    "distance_residual_bins.csv": ["distance_bin", "mean_residual_days"],
+    "state_distance.csv": ["comparison", "cv_r2_mean"],
+    "model_selection.csv": ["model", "selection_score", "chosen"],
+    "sensitivity.csv": ["iteration", "lead_time_reduction_pct"],
+    "sensitivity_stability.csv": ["product", "default_factory", "choice_agreement_pct"],
+    "pilot_shortlist.csv": ["product", "candidate_factory", "breakeven_freight_speed_km_day"],
+}
 
 st.set_page_config(page_title="Nassau Candy | Factory Allocation", page_icon="🍬", layout="wide")
 
@@ -44,6 +61,36 @@ def load_orders():
 @st.cache_data(show_spinner=False)
 def load_table(name):
     return pd.read_csv(ARTIFACT_DIR / name)
+
+
+def validate_required_artifacts():
+    missing = [name for name in REQUIRED_ARTIFACTS if not (ARTIFACT_DIR / name).exists()]
+    if missing:
+        st.error(
+            "Missing required artifact files:\n- " + "\n- ".join(missing) + "\n\nFix: run python run_pipeline.py"
+        )
+        st.stop()
+
+
+def validate_artifact_schema():
+    issues = []
+    for name, expected in REQUIRED_ARTIFACTS.items():
+        path = ARTIFACT_DIR / name
+        if not path.exists():
+            continue
+        if path.suffix == ".csv":
+            columns = list(pd.read_csv(path).columns)
+            missing = [item for item in expected if item not in columns]
+            if missing:
+                issues.append(f"{name} missing columns: {missing}")
+        elif path.suffix == ".json":
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            missing = [item for item in expected if item not in payload]
+            if missing:
+                issues.append(f"{name} missing keys: {missing}")
+    if issues:
+        st.error("Artifact schema drift detected:\n- " + "\n- ".join(issues))
+        st.stop()
 
 
 def make_assumptions(speed, cost, weight):
@@ -276,6 +323,8 @@ def add_recommendation_status(frame):
 
 
 def main():
+    validate_required_artifacts()
+    validate_artifact_schema()
     try:
         orders = load_orders()
     except FileNotFoundError as error:

@@ -217,13 +217,10 @@ def main():
     for name, obj in [
         ("model_metrics", model_report), ("permutation_importance", importance),
         ("routes", routes), ("congested_region_products", congestion), ("recommendations", recommendations),
-        ("joint_assignment", assignment), ("joint_assignment_gated", assignment),
-        ("joint_assignment_exploratory", exploratory_assignment), ("pilot_shortlist", pilot_shortlist),
-        ("qualifying_alternatives", qualifying),
-        ("ablation", diagnostic["ablation"]),
-        ("model_selection", diagnostic["model_selection"]),
-        ("mode_slopes", diagnostic["mode_slopes"]),
-        ("distance_residual_bins", diagnostic["residual_distance"]),
+        ("joint_assignment_gated", assignment), ("joint_assignment_exploratory", exploratory_assignment),
+        ("pilot_shortlist", pilot_shortlist), ("qualifying_alternatives", qualifying),
+        ("ablation", diagnostic["ablation"]), ("model_selection", diagnostic["model_selection"]),
+        ("mode_slopes", diagnostic["mode_slopes"]), ("distance_residual_bins", diagnostic["residual_distance"]),
         ("state_distance", diagnostic["state_distance"]), ("sensitivity", mc),
     ]:
         obj.to_csv(ARTIFACT_DIR / f"{name}.csv", index=False)
