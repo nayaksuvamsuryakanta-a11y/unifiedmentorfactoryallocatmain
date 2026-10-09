@@ -24,6 +24,11 @@ def markdown_table(frame):
     return "| " + " | ".join(headers) + " |\n| " + " | ".join("---" for _ in headers) + " |\n" + "\n".join("| " + " | ".join(row) + " |" for row in values.itertuples(index=False, name=None))
 
 
+def plural(n, noun, number_format="g"):
+    label = noun if n == 1 else f"{noun}s"
+    return f"{n:{number_format}} {label}"
+
+
 def write_reports(df, metrics, temporal, diagnostic, routes, recommendations,
                   assignment, exploratory_assignment, exploratory_moves, exploratory_forced,
                   kpis, mc, choice_stability, solver, pilot_shortlist, qualifying):
@@ -76,7 +81,7 @@ def write_reports(df, metrics, temporal, diagnostic, routes, recommendations,
 
 Leadership attributes long lead times to static factory assignments and suboptimal shipping distances. We tested that premise directly: shipping mode dominates prediction and distance adds little.
 
-This decision-support study tests whether moving a product to another of five factories can plausibly shorten delivery without reducing gross profit. In the supplied sample of **{len(df):,} retained order lines**, shipping mode explains most predictable lead-time variation. The distance ablation changes five-fold R² by only a small amount, and within-mode distance slopes are not statistically significant at the 5% level. The simulated moves remain assumption-driven and the configured evidence/materiality gates produce **{actionable['product'].nunique() if len(actionable) else 0} actionable top-ranked products**. The analysis therefore supports investigation and measurement, not an unqualified network redesign.
+This decision-support study tests whether moving a product to another of five factories can plausibly shorten delivery without reducing gross profit. In the supplied sample of **{plural(len(df), 'retained order line', ',')}**, shipping mode explains most predictable lead-time variation. The distance ablation changes five-fold R² by only a small amount, and within-mode distance slopes are not statistically significant at the 5% level. The simulated moves remain assumption-driven and the configured evidence/materiality gates produce **{plural(actionable['product'].nunique() if len(actionable) else 0, 'actionable top-ranked product')}**. The analysis therefore supports investigation and measurement, not an unqualified network redesign.
 
 ## Background and problem
 
@@ -84,7 +89,7 @@ Nassau Candy has five fixed factories and a 15-product catalogue. The operationa
 
 ## Data issues and preparation
 
-The naive `(Ship Date − Order Date)` calculation is invalid: **{naive_gap.min()} / {naive_gap.mean():.2f} / {naive_gap.max()} days (min/mean/max)**, with years in ship dates later than the order years. The month/day values parse plausibly. We reconstruct ship year from the order year, roll to the next year if month/day precedes the order date, then subtract the observed minimum residual gap of **{residual_offset} days**. This data-derived offset avoids guessing a constant. Repaired mode means are {df.groupby('ship_mode').lead_time_days.mean().reindex(SHIP_MODE_RANK).round(2).to_dict()}, ordered from Same Day through Standard Class; every repaired row is nonnegative and below 30 days.
+The naive `(Ship Date − Order Date)` calculation is invalid: **{plural(naive_gap.min(), 'day')} / {plural(naive_gap.mean(), 'day', '.2f')} / {plural(naive_gap.max(), 'day')} (min/mean/max)**, with years in ship dates later than the order years. The month/day values parse plausibly. We reconstruct ship year from the order year, roll to the next year if month/day precedes the order date, then subtract the observed minimum residual gap of **{plural(residual_offset, 'day')}**. This data-derived offset avoids guessing a constant. Repaired mode means are {df.groupby('ship_mode').lead_time_days.mean().reindex(SHIP_MODE_RANK).round(2).to_dict()}, ordered from Same Day through Standard Class; every repaired row is nonnegative and below 30 days.
 
 Right-tail financial outliers use a **3× IQR fence**, wider than the textbook 1.5× fence to retain legitimate bulk orders. Lead time is not trimmed. Order-date calendar variables are derived. Ship mode is encoded ordinally and one-hot. Imputation, scaling, and categorical encoding are fitted within scikit-learn pipelines after each split.
 
@@ -94,7 +99,7 @@ ZIP/postal centroid values from **pgeocode 0.5.0 / GeoNames postal dataset** are
 
 ## Modeling methods and results
 
-We compare linear regression, Ridge, random forest, and gradient boosting using a fixed 80/20 random holdout and shuffled five-fold cross-validation. Temporal validation trains on the earlier order year and evaluates on the later year. The selected model was **{best.model}** (R² {best.r2:.3f}, RMSE {best.rmse:.3f} days, MAE {best.mae:.3f} days; CV R² {best.cv_r2_mean:.3f}). Best temporal R² came from **{temporal_best}** (R² {temporal_table.loc[temporal_best, 'r2']:.3f}). Temporal performance is weaker than the best random holdout, so random-split scores should not be treated as deployment forecasts.
+We compare linear regression, Ridge, random forest, and gradient boosting using a fixed 80/20 random holdout and shuffled five-fold cross-validation. Temporal validation trains on the earlier order year and evaluates on the later year. The selected model was **{best.model}** (R² {best.r2:.3f}, RMSE {plural(best.rmse, 'day', '.3f')}, MAE {plural(best.mae, 'day', '.3f')}; CV R² {best.cv_r2_mean:.3f}). Best temporal R² came from **{temporal_best}** (R² {temporal_table.loc[temporal_best, 'r2']:.3f}). Temporal performance is weaker than the best random holdout, so random-split scores should not be treated as deployment forecasts.
 
 Product and current factory overlap because each product has a fixed incumbent. The brief-spec variant uses exactly product, current factory, region, and ship mode; its scores are in `artifacts/model_metrics.csv`.
 
@@ -106,7 +111,7 @@ Permutation importance is saved in `artifacts/permutation_importance.csv` and is
 
 The nested gradient-boosting ablation is stored in `artifacts/ablation.csv`. The measured ZIP/state-mixed and state-only comparisons are:
 
-        {markdown_table(ablation.round(4))}
+{markdown_table(ablation.round(4))}
 
 The distance increment is small relative to the ship-mode baseline; switching geocoding precision changes the distance-only CV score by **{distance_effect:.4f} R²**. Within each ship mode, distance slopes/p-values are:
 
@@ -120,11 +125,11 @@ Orders are aggregated to factory/region/division lanes. Low-volume lanes (under 
 
 ## Counterfactual assumptions and optimization
 
-Measured quantities are product-level order/units, observed gross profit and lead baseline, and Haversine distance deltas. **Assumed quantities** are freight speed ({Assumptions.freight_speed_km_day:g} km/day), freight cost ({Assumptions.freight_cost_per_unit_per_1000km:g} currency/unit/1,000 km), capability gap penalty ({Assumptions.capability_gap_penalty:.0%}), minimum evidence ({Assumptions.min_orders_for_recommendation} orders), material lead improvement ({Assumptions.min_material_days:g} days), and factory capacity ({Assumptions.capacity_multiplier:g}× current units). Delta lead equals measured distance change divided by assumed speed; delta cost equals measured units times distance change times assumed rate. Candidate factories without historical production in the product division receive a visible capability-gap flag and score discount. Confidence combines evidence volume and lead-time stability, then discounts capability gaps and is capped below 100.
+Measured quantities are product-level order/units, observed gross profit and lead baseline, and Haversine distance deltas. **Assumed quantities** are freight speed ({Assumptions.freight_speed_km_day:g} km/day), freight cost ({Assumptions.freight_cost_per_unit_per_1000km:g} currency/unit/1,000 km), capability gap penalty ({Assumptions.capability_gap_penalty:.0%}), minimum evidence ({plural(Assumptions.min_orders_for_recommendation, 'order')}), material lead improvement ({plural(Assumptions.min_material_days, 'day')}), and factory capacity ({Assumptions.capacity_multiplier:g}× current units). Delta lead equals measured distance change divided by assumed speed; delta cost equals measured units times distance change times assumed rate. Candidate factories without historical production in the product division receive a visible capability-gap flag and score discount. Confidence combines evidence volume and lead-time stability, then discounts capability gaps and is capped below 100.
 
-Per-product ranking min-max normalizes lead and profit gain across candidate factories, combines them with the speed/profit weight, and applies capability/confidence discounts. The joint mixed-integer assignment selects one factory per product subject to each factory’s unit capacity. **Solver used: {solver}.** Gated assignment moves **{int((assignment.factory != assignment["product"].map(incumbents)).sum())} products** off incumbents. Exploratory assignment moves **{exploratory_moves}**, with **{exploratory_forced}** differing from their own highest-scoring option due to capacity. This replaces the former comparison, which came from zeroing incumbent scores and allowing moves without evidence or materiality gates.
+Per-product ranking min-max normalizes lead and profit gain across candidate factories, combines them with the speed/profit weight, and applies capability/confidence discounts. The joint mixed-integer assignment selects one factory per product subject to each factory’s unit capacity. **Solver used: {solver}.** Gated assignment moves **{plural(int((assignment.factory != assignment["product"].map(incumbents)).sum()), 'product')}** off incumbents. Exploratory assignment moves **{exploratory_moves}**, with **{exploratory_forced}** differing from their own highest-scoring option due to capacity. This replaces the former comparison, which came from zeroing incumbent scores and allowing moves without evidence or materiality gates.
 
-The single best-ranked move per product clears both configured gates for {actionable['product'].nunique() if len(actionable) else 0} products; any move that independently clears both gates exists for {qualifying_product_count} products. See `artifacts/qualifying_alternatives.csv` for each qualifying alternative and whether it is also the top-scored pick.
+The single best-ranked move per product clears both configured gates for {plural(actionable['product'].nunique() if len(actionable) else 0, 'product')}; any move that independently clears both gates exists for {plural(qualifying_product_count, 'product')}. See `artifacts/qualifying_alternatives.csv` for each qualifying alternative and whether it is also the top-scored pick.
 
 Under the current freight model, speed and profit gains are perfectly correlated per product, so the speed/profit control cannot change rankings. A real trade-off requires per-factory cost or freight-rate data absent from the source. Risk weight ({Assumptions.risk_weight:.0%}) is an assumption. Risk averages the capability-gap flag and candidate capacity pressure (product units divided by candidate factory historical units, capped at 1); incumbent risk is zero. Capability gaps affect confidence, the score multiplier, and the risk axis, so these effects stack.
 
@@ -170,7 +175,7 @@ The KPI bootstrap resamples which products pass the order-count gate but does no
 
 {pilot_table}
 
-The single best-ranked move per product clears both configured gates for {actionable['product'].nunique() if len(actionable) else 0} products; any move that independently clears both gates for {qualifying_product_count} products.
+The single best-ranked move per product clears both configured gates for {plural(actionable['product'].nunique() if len(actionable) else 0, 'product')}; any move that independently clears both gates for {plural(qualifying_product_count, 'product')}.
 
 **Measured from the source:** order counts, units, gross profit, repaired historical lead times, and centroid-based distances. **Assumed for scenarios:** freight speed, freight cost, capability penalties, and capacity limits. ZIP centroids covered {precise:.1f}% of retained rows; state/province centroids covered {state:.1f}%.
 """
@@ -246,8 +251,8 @@ def main():
     highest = all_candidates.sort_values("score", ascending=False).drop_duplicates("product").set_index("product").candidate_factory.sort_index()
     exploratory_choice = exploratory_assignment.set_index("product").factory.sort_index()
     exploratory_forced = int((exploratory_choice.to_numpy() != highest.reindex(exploratory_choice.index).to_numpy()).sum())
-    print(f"Gated joint assignment moves off incumbent: {gated_moves} products")
-    print(f"Exploratory joint assignment moves off incumbent: {exploratory_moves} products; differs from own highest-scoring option: {exploratory_forced}")
+    print(f"Gated joint assignment moves off incumbent: {plural(gated_moves, 'product')}")
+    print(f"Exploratory joint assignment moves off incumbent: {plural(exploratory_moves, 'product')}; differs from own highest-scoring option: {exploratory_forced}")
     print("\nConditional pilot shortlist (top 5 by break-even speed):\n", pilot_shortlist[["product","candidate_factory","orders","lead_gain","breakeven_freight_speed_km_day"]].head(5).round(2).to_string(index=False))
     print(f"\nActionable KPI estimates (500 order-bootstrap resamples):\n{json.dumps(kpis, indent=2)}")
     baseline_choices = score_products(df, top_n=1)
