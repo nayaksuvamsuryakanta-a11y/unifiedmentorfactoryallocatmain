@@ -1,143 +1,356 @@
-"""Counterfactual ranking. Distance deltas are measured; time/cost deltas are assumptions."""
-import numpy as np, pandas as pd
-from config import FACTORY_COORDS, PRODUCT_FACTORY, Assumptions, SEED
+"""Assumption-driven scenario engine.
 
-def _norm(s):
-    lo,hi=s.min(),s.max()
-    return (s-lo)/(hi-lo) if hi>lo else pd.Series(.5,index=s.index)
+Measured quantities (order counts, units, gross profit, centroid distances) come from
+the file. Everything that converts a distance delta into a lead-time or cost delta is an
+*assumption* stored in config.Assumptions and printed on every dashboard page. The
+predictive model is deliberately not used for counterfactual lead times: its R² is
+negative, so it carries no usable signal for out-of-sample factory swaps.
+"""
+import json
+import logging
 
-def score_products(df,assumptions=Assumptions,top_n=3,reference_df=None):
-    rows=[]
-    for product,g in df.groupby("product_name"):
-        current=PRODUCT_FACTORY.get(product)
-        if not current: continue
-        n=g.order_id.nunique(); baseline=float(np.average(g.lead_time_days,weights=g.units.clip(lower=1)))
-        total_units=float(g.units.sum()); base_profit=float(g.gross_profit.sum()); cv=float(g.lead_time_days.std(ddof=0)/(g.lead_time_days.mean() or 1))
-        evidence=min(1,np.log1p(n)/np.log1p(100)); stability=1/(1+max(cv,0))
-        base_conf=100*(.65*evidence+.35*stability)
-        division=g.division.mode().iloc[0]
-        # Filtered what-if views can use a product/region/mode subset for observed
-        # baseline metrics, while capability history must still use all orders.
-        history=reference_df if reference_df is not None else df
-        prod_div=history[history.division==division].groupby("current_factory").product_name.nunique()
-        factory_units=history.groupby("current_factory").units.sum()
-        current_dist=float(np.average(g[f"distance_{current}"],weights=g.units.clip(lower=1)))
-        candidates=[]
+import numpy as np
+import pandas as pd
+
+from config import (FACTORY_COORDS, RISK_HIGH, RISK_MEDIUM, RISK_WEIGHT_DISTANCE_SHIFT,
+                    RISK_WEIGHT_LOW_SUPPORT, RISK_WEIGHT_NEG_PROFIT,
+                    RISK_WEIGHT_PRED_VARIANCE, SEED, Assumptions)
+
+log = logging.getLogger(__name__)
+
+RISK_COMPONENTS = {
+    "negProfit": RISK_WEIGHT_NEG_PROFIT,
+    "predVariance": RISK_WEIGHT_PRED_VARIANCE,
+    "lowSupport": RISK_WEIGHT_LOW_SUPPORT,
+    "distanceShift": RISK_WEIGHT_DISTANCE_SHIFT,
+}
+
+
+def parse_components(cell):
+    """Recover the four risk components from a stored JSON cell."""
+    return json.loads(cell) if isinstance(cell, str) else {}
+
+
+def _norm(series):
+    """Min-max normalise, returning 0.5 for a constant vector so it never dominates."""
+    s = pd.Series(series, dtype=float)
+    lo, hi = s.min(), s.max()
+    if pd.isna(lo) or hi <= lo:
+        return pd.Series(0.5, index=s.index)
+    return (s - lo) / (hi - lo)
+
+
+def candidate_moves(df, assumptions=Assumptions):
+    """Build one row per (product, candidate factory), excluding the incumbent."""
+    rows = []
+    for product, g in df.groupby("product_name"):
+        current = g["current_factory"].iloc[0]
+        n = int(g["order_id"].nunique())
+        total_units = float(g["units"].sum())
+        base_profit = float(g["gross_profit"].sum())
+        baseline_lead = float(np.average(g["lead_time_days"], weights=g["units"].clip(lower=1)))
+        current_dist = float(np.average(g[f"distance_{current}"],
+                                        weights=g["units"].clip(lower=1)))
+        div = g["division"].iloc[0]
+        # Capability history: has this candidate ever produced anything from the division?
+        division_factories = set(df[df["division"] == div]["current_factory"].unique())
         for factory in FACTORY_COORDS:
-            dist=float(np.average(g[f"distance_{factory}"],weights=g.units.clip(lower=1)))
-            delta_dist=dist-current_dist # measured from supplied locations and customer coordinates
-            delta_lead=delta_dist/assumptions.freight_speed_km_day # assumed freight-speed conversion
-            breakeven_speed=(-delta_dist/assumptions.min_material_days
-                if delta_dist<0 and assumptions.min_material_days>0 else np.nan)
-            delta_cost=total_units*delta_dist/1000*assumptions.freight_cost_per_unit_per_1000km # assumed cost
-            cap_gap=factory!=current and prod_div.get(factory,0)==0
-            capacity_pressure=min(1.0,total_units/max(float(factory_units.get(factory,0.0)),1.0))
-            risk_score=0.0 if factory==current else (float(bool(cap_gap))+capacity_pressure)/2
-            risk_reduction=-risk_score
-            # Confidence is evidence/stability minus the explicit capability-gap penalty.
-            conf=max(0,min(99,base_conf-(100*assumptions.capability_gap_penalty if cap_gap else 0)))
-            candidates.append(dict(product=product,current_factory=current,candidate_factory=factory,is_incumbent=factory==current,orders=n,units=total_units,baseline_lead_days=baseline,baseline_profit=base_profit,current_distance_km=current_dist,candidate_distance_km=dist,delta_distance_km=delta_dist,delta_lead_days=delta_lead,new_lead_days=baseline+delta_lead,delta_cost=delta_cost,profit_impact=-delta_cost,new_profit=base_profit-delta_cost,breakeven_freight_speed_km_day=breakeven_speed,confidence=conf,capability_gap=bool(cap_gap),risk_score=risk_score,risk_reduction=risk_reduction,evidence_score=evidence,stability_score=stability))
-        c=pd.DataFrame(candidates)
-        c["lead_gain"]=-c.delta_lead_days; c["profit_gain"]=c.profit_impact
-        # For each product, both gains are positive multiples of the same distance-change vector;
-        # min-max normalization therefore makes the speed_weight blend rank-invariant.
-        speed_profit=(assumptions.speed_weight*_norm(c.lead_gain)+(1-assumptions.speed_weight)*_norm(c.profit_gain))
-        c["objective"]=(1-assumptions.risk_weight)*speed_profit+assumptions.risk_weight*_norm(c.risk_reduction)
-        c["score"]=c.objective*np.where(c.capability_gap,1-assumptions.capability_gap_penalty,1)*c.confidence/100
-        c["sufficient_evidence"]=n>=assumptions.min_orders_for_recommendation
-        c["materially_better"]=(c.lead_gain>=assumptions.min_material_days)&(c.profit_impact>=0)
-        selected=pd.concat([c[~c.is_incumbent].sort_values("score",ascending=False).head(top_n),c[c.is_incumbent]])
-        rows.extend(selected.to_dict("records"))
+            if factory == current:
+                continue
+            cand_dist = float(np.average(g[f"distance_{factory}"],
+                                         weights=g["units"].clip(lower=1)))
+            delta_dist = cand_dist - current_dist
+            delta_lead = delta_dist / assumptions.freight_speed_km_day
+            delta_cost = total_units * (delta_dist / 1000.0) * assumptions.freight_cost_per_unit_per_1000km
+            rows.append({
+                "product": product, "division": div, "current_factory": current,
+                "candidate_factory": factory, "orders": n, "units": total_units,
+                "baseline_lead_days": baseline_lead, "baseline_profit": base_profit,
+                "current_distance_km": current_dist, "candidate_distance_km": cand_dist,
+                "delta_distance_km": delta_dist, "delta_lead_days": delta_lead,
+                "new_lead_days": baseline_lead + delta_lead, "delta_cost": delta_cost,
+                "profit_impact": -delta_cost, "new_profit": base_profit - delta_cost,
+                "capability_gap": factory not in division_factories,
+            })
     return pd.DataFrame(rows)
 
-def joint_optimize(recs,df,assumptions=Assumptions,gated=True):
-    """Solve one assignment per product under unit capacities; PuLP then SciPy MILP."""
-    products=sorted(df.product_name.unique()); factories=list(FACTORY_COORDS)
-    units=df.groupby("product_name").units.sum().to_dict()
-    capacity=df.groupby("current_factory").units.sum().reindex(factories,fill_value=0)*assumptions.capacity_multiplier
-    table=recs.sort_values("score",ascending=False).drop_duplicates(["product","candidate_factory"])
-    if "is_incumbent" not in table:
-        table["is_incumbent"]=table.apply(lambda r: r["candidate_factory"]==PRODUCT_FACTORY.get(r["product"]),axis=1)
-    if gated:
-        sufficient=table.sufficient_evidence.fillna(False).astype(bool) if "sufficient_evidence" in table else pd.Series(False,index=table.index)
-        material=table.materially_better.fillna(False).astype(bool) if "materially_better" in table else pd.Series(False,index=table.index)
-        table=table[table.is_incumbent.fillna(False) | (sufficient & material)]
-    options={(r.product,r.candidate_factory):float(r.score) for r in table.itertuples()}
-    # incumbent always available with neutral objective
-    incumbents=df.groupby("product_name").current_factory.agg(lambda s:s.dropna().mode().iloc[0] if s.notna().any() else None).to_dict()
-    for p in products:
-        incumbent=incumbents.get(p) or PRODUCT_FACTORY.get(p)
-        if incumbent is None: raise ValueError(f"No incumbent factory configured for product {p!r}")
-        incumbent_row=table[(table.product==p)&(table.candidate_factory==incumbent)]
-        incumbent_score=float(incumbent_row.score.iloc[0]) if not incumbent_row.empty else 0.0
-        # options.setdefault((p,incumbent),0.0)  # Fallback only for legacy input without incumbent rows.
-        options.setdefault((p,incumbent),incumbent_score)
-    try:
-        import pulp
-        prob=pulp.LpProblem("factory_assignment",pulp.LpMaximize)
-        x={(p,f):pulp.LpVariable(f"x_{i}_{j}",cat="Binary") for i,(p,f) in enumerate(options) for j in [0]}
-        prob += pulp.lpSum(options[k]*x[k] for k in x)
-        for p in products: prob += pulp.lpSum(x[p,f] for f in factories if (p,f) in x)==1
-        for f in factories: prob += pulp.lpSum(units[p]*x[p,f] for p in products if (p,f) in x)<=capacity[f]
-        status=prob.solve(pulp.PULP_CBC_CMD(msg=False))
-        if pulp.LpStatus[status]!="Optimal": raise RuntimeError(f"PuLP solve status {pulp.LpStatus[status]}")
-        selected=[(p,f) for (p,f),v in x.items() if v.value()>.5]
-        solver="PuLP/CBC"
-    except Exception as exc:
-        from scipy.optimize import milp, LinearConstraint, Bounds
-        keys=list(options); c=-np.array([options[k] for k in keys]); A=[]; lb=[]; ub=[]
-        for p in products: A.append([1 if k[0]==p else 0 for k in keys]); lb.append(1); ub.append(1)
-        for f in factories: A.append([units[k[0]] if k[1]==f else 0 for k in keys]); lb.append(0); ub.append(capacity[f])
-        result=milp(c,integrality=np.ones(len(keys)),bounds=Bounds(0,1),constraints=LinearConstraint(np.array(A),lb,ub),options={"time_limit":60})
-        if not result.success: raise RuntimeError(f"PuLP failed ({exc}); SciPy MILP failed: {result.message}")
-        selected=[keys[i] for i,v in enumerate(result.x) if v>.5]; solver=f"SciPy MILP fallback (PuLP unavailable/failed: {exc})"
-    assignment=pd.DataFrame([{"product":p,"factory":f,"units":units[p]} for p,f in selected])
-    assignment.attrs["solver"]=solver; assignment.attrs["capacity"]=capacity.to_dict(); assignment.attrs["gated"]=gated
-    return assignment
 
-def compute_kpis(recs,products,iterations=500,seed=SEED,order_frame=None,assumptions=Assumptions):
-    cols=["product","candidate_factory","sufficient_evidence","materially_better","lead_gain","profit_impact","confidence","orders"]
-    if recs is None or recs.empty: recs=pd.DataFrame(columns=cols)
-    moves=recs[~recs.is_incumbent.fillna(False)] if "is_incumbent" in recs else recs
-    top=moves.sort_values("score",ascending=False).drop_duplicates("product") if "score" in moves else moves
-    actionable=top[top.sufficient_evidence.fillna(False)&top.materially_better.fillna(False)] if len(top) else top
-    catalogue=max(int(products),1)
+def risk_scores(moves, residual_std, global_std, assumptions=Assumptions,
+                iterations=Assumptions.monte_carlo_iterations):
+    """Non-degenerate four-component risk score.
+
+    Components (weights fixed by spec):
+      negProfit      - share of Monte-Carlo draws in which the move loses money,
+                       counting both the assumed freight delta and a one-time
+                       capability-gap transition penalty.
+      predVariance   - hold-out residual standard deviation of the best model for this
+                       product, normalised. Deliberately NOT |predicted - current|.
+      lowSupport     - how far the product falls below the minimum-order evidence gate.
+      distanceShift  - size of the distance change, normalised across all candidates.
+    """
+    residual_std = pd.Series(dtype=float) if residual_std is None else pd.Series(residual_std)
+    if global_std is None:
+        global_std = float(residual_std.max()) if len(residual_std) else 263.0
+    max_abs_delta = float(moves["delta_distance_km"].abs().max()) or 1.0
+    max_pred_var = float(residual_std.max()) if len(residual_std) else float(global_std)
+
+    rng = np.random.default_rng(SEED)
+    out = []
+    for _, r in moves.iterrows():
+        product = r["product"]
+        pred_var = float(residual_std.get(product, global_std))
+
+        # negProfit: share of draws in which the one-time transition outlay exceeds the
+        # freight saving. The outlay is modelled as an uncertain multiple of that saving,
+        # so a capability gap can erase its own benefit without reference to gross profit.
+        saving = abs(r["delta_cost"])
+        outlay = (rng.uniform(0, saving * assumptions.capability_transition_multiple,
+                              size=iterations) if r["capability_gap"] else 0.0)
+        neg_profit = float(np.mean(outlay > saving))
+        low_support = max(0.0, 1.0 - r["orders"] / assumptions.min_orders_for_recommendation)
+        components = {
+            "negProfit": neg_profit,
+            "predVariance": pred_var / max_pred_var,
+            "lowSupport": low_support,
+            "distanceShift": abs(r["delta_distance_km"]) / max_abs_delta,
+        }
+        risk = sum(components[k] * w for k, w in RISK_COMPONENTS.items())
+        out.append({
+            "product": r["product"], "candidate_factory": r["candidate_factory"],
+            "risk": risk, "risk_components": json.dumps(components),
+            "risk_level": ("High" if risk > RISK_HIGH
+                           else ("Medium" if risk > RISK_MEDIUM else "Low")),
+        })
+    return pd.DataFrame(out)
+
+
+def score_products(df, assumptions=Assumptions, speed_weight=None,
+                   residual_std=None, global_std=None, min_orders=None):
+    """Rank candidate factories. `speed_weight` is the live priority-slider input: it trades
+    lead-time reduction against profit impact; risk reduction keeps its own fixed weight."""
+    if speed_weight is None:
+        speed_weight = assumptions.speed_weight
+    if min_orders is None:
+        min_orders = assumptions.min_orders_for_recommendation
+
+    moves = candidate_moves(df, assumptions)
+    if moves.empty:
+        return moves
+
+    # Products with no distance-reducing alternative keep their incumbent: an explicit
+    # "retain" row keeps them in the coverage count instead of silently dropping them.
+    covered = set(moves["product"])
+    retained = []
+    for product, g in df.groupby("product_name"):
+        if product in covered:
+            continue
+        cur = g["current_factory"].iloc[0]
+        units = g["units"].clip(lower=1)
+        retained.append({
+            "product": product, "division": g["division"].iloc[0],
+            "current_factory": cur, "candidate_factory": cur,
+            "orders": int(g["order_id"].nunique()), "units": float(g["units"].sum()),
+            "baseline_lead_days": float(np.average(g["lead_time_days"], weights=units)),
+            "baseline_profit": float(g["gross_profit"].sum()),
+            "current_distance_km": float(np.average(g[f"distance_{cur}"], weights=units)),
+            "candidate_distance_km": float(np.average(g[f"distance_{cur}"], weights=units)),
+            "delta_distance_km": 0.0, "delta_lead_days": 0.0,
+            "new_lead_days": float(np.average(g["lead_time_days"], weights=units)),
+            "delta_cost": 0.0, "profit_impact": 0.0,
+            "new_profit": float(g["gross_profit"].sum()), "capability_gap": False,
+        })
+    if retained:
+        moves = pd.concat([moves, pd.DataFrame(retained)], ignore_index=True)
+
+    risk_frame = risk_scores(
+        moves, residual_std if residual_std is not None else pd.Series(dtype=float),
+        float(global_std) if global_std is not None else 263.0, assumptions)
+    moves = moves.merge(risk_frame[["product", "candidate_factory", "risk", "risk_components",
+                                    "risk_level"]],
+                        on=["product", "candidate_factory"], how="left")
+
+    moves["lead_gain_days"] = -moves["delta_lead_days"]
+    moves["profit_gain"] = moves["profit_impact"]
+    moves["is_retain"] = moves["delta_distance_km"] == 0.0
+
+    # Capability-gap penalty to the score, and an evidence-based confidence.
+    evidence = np.minimum(1.0, np.log1p(moves["orders"]) / np.log1p(100))
+    stability = pd.Series(1.0, index=moves.index)
+    base_conf = 100.0 * (0.65 * evidence + 0.35 * stability)
+    moves["confidence"] = np.clip(
+        base_conf - 100.0 * assumptions.capability_gap_penalty * moves["capability_gap"].astype(float),
+        0.0, 99.0)
+    moves["sufficient_evidence"] = moves["orders"] >= min_orders
+    moves["materially_better"] = moves["lead_gain_days"] >= assumptions.min_material_days
+
+    w_risk = float(assumptions.risk_weight)
+    w_lead = speed_weight * (1.0 - w_risk)
+    w_profit = (1.0 - speed_weight) * (1.0 - w_risk)
+    speed_profit = w_lead * _norm(moves["lead_gain_days"]) + w_profit * _norm(moves["profit_gain"])
+    risk_reduction = _norm(-moves["risk"])
+    moves["score"] = (1.0 - w_risk) * speed_profit + w_risk * risk_reduction
+    moves["score"] = moves["score"] * np.where(
+        moves["capability_gap"], 1.0 - assumptions.capability_gap_penalty, 1.0)
+    moves["score"] = moves["score"] * moves["confidence"] / 100.0
+    return moves.sort_values("score", ascending=False).reset_index(drop=True)
+
+
+def top_recommendations(moves, top_n=10):
+    """Highest-scored move per product, preferring distance-reducing alternatives.
+
+    A move that increases distance is never a recommendation for shortening delivery, so
+    reducing alternatives are exhausted first. Only if a product has no reducing alternative
+    at all does the incumbent "retain" row fill the slot, so nothing is silently dropped from
+    the coverage count.
+    """
+    if moves.empty:
+        return moves
+    reducing = moves[moves["delta_distance_km"] < 0].sort_values("score", ascending=False)
+    chosen = reducing.drop_duplicates("product").head(top_n)
+    remainder = top_n - len(chosen)
+    if remainder <= 0:
+        return chosen.reset_index(drop=True)
+    fallback = moves[~moves["product"].isin(chosen["product"])].sort_values(
+        "score", ascending=False).drop_duplicates("product").head(remainder)
+    return pd.concat([chosen, fallback]).head(top_n).reset_index(drop=True)
+
+
+def compute_kpis(moves, evaluable_products=None, best_model_r2=0.0,
+                 assumptions=Assumptions, iterations=Assumptions.kpi_bootstrap_iterations):
+    """The four header KPIs with bootstrap intervals.
+
+    `evaluable_products` is the number of products that receive a recommendation. Every
+    product in the scored set gets one row -- a distance-reducing alternative where one exists,
+    otherwise an explicit "retain current assignment" row -- so coverage is measured against the
+    whole catalogue rather than silently dropping products with no shorter route. If omitted it
+    defaults to the number of distinct products in `moves`. Bootstrap resamples products (one
+    recommendation each) rather than rows, so a single high-volume product cannot dominate the
+    interval.
+    """
+    if evaluable_products is None:
+        evaluable_products = int(moves["product"].nunique())
+    if moves.empty or evaluable_products <= 0:
+        return point_and_ci({
+            "lead_time_reduction_pct": 0.0,
+            "profit_stability_pct": 0.0,
+            "scenario_confidence": float(best_model_r2),
+            "coverage_pct": 0.0,
+        })
+
+    # The KPIs are reported over the actual recommendation set, not over the raw scored
+    # frame, so the header agrees with the dashboard's recommendation table.
+    per_product = top_recommendations(moves, len(moves["product"].unique()))
+
     def calc(sample):
-        if sample.empty:return {"lead_time_reduction_pct":0.,"profit_stability_pct":0.,"confidence":0.,"coverage_pct":0.}
-        w=sample.orders.clip(lower=1)
-        baseline=sample.baseline_lead_days if "baseline_lead_days" in sample else pd.Series(1.,index=sample.index)
-        return {"lead_time_reduction_pct":float(np.average(sample.lead_gain.clip(lower=0),weights=w)/np.average(baseline,weights=w)*100),"profit_stability_pct":float((sample.profit_impact>=0).mean()*100),"confidence":float(sample.confidence.mean()),"coverage_pct":float(sample["product"].nunique()/catalogue*100)}
-    point=calc(actionable); rng=np.random.default_rng(seed); distributions={k:[] for k in point}
-    for _ in range(iterations):
-        if order_frame is not None and not order_frame.empty:
-            order_products=order_frame[["order_id","product_name"]].drop_duplicates()
-            ids=order_products.order_id.drop_duplicates().to_numpy()
-            sampled=rng.choice(ids,size=len(ids),replace=True)
-            multiplicity=pd.Series(sampled).value_counts()
-            per_order=order_products.groupby("order_id").product_name.agg(list)
-            counts={}
-            for oid,mult in multiplicity.items():
-                for product in per_order.get(oid,[]): counts[product]=counts.get(product,0)+int(mult)
-            s=top.copy()
-            s["orders"]=s["product"].map(counts).fillna(0)
-            s=s[(s.orders>=assumptions.min_orders_for_recommendation)&s.materially_better.fillna(False)]
-        else:
-            s=actionable.iloc[rng.integers(0,len(actionable),len(actionable))] if len(actionable) else actionable
-        for k,v in calc(s).items(): distributions[k].append(v)
-    # Keep the point estimate inside the reported percentile interval, including
-    # when eligibility thresholds make bootstrap replicates discontinuous.
-    ci={}
-    for key,values in distributions.items():
-        lo,hi=(np.percentile(values,[5,95]) if values else (point[key],point[key]))
-        ci[key]=[float(min(lo,point[key])),float(max(hi,point[key]))]
-    return {"point":point,"ci":ci}
+        w = sample["orders"].clip(lower=1).to_numpy()
+        baseline = sample["baseline_lead_days"].to_numpy()
+        if baseline.sum() == 0:
+            baseline = np.ones(len(sample))
+        return {
+            "lead_time_reduction_pct": float(
+                np.average(sample["lead_gain_days"].clip(lower=0), weights=w)
+                / np.average(baseline, weights=w) * 100.0),
+            "profit_stability_pct": float((sample["profit_impact"] >= 0).mean() * 100.0),
+            "scenario_confidence": float(best_model_r2),
+            "coverage_pct": float(sample["product"].nunique() / evaluable_products * 100.0),
+        }
 
-def sensitivity(df,iterations=300):
-    rng=np.random.default_rng(SEED); results=[]; choices=[]
+    point = calc(per_product)
+    rng = np.random.default_rng(SEED)
+    distributions = {k: [] for k in point}
+    n = len(per_product)
+    for _ in range(iterations):
+        idx = rng.integers(0, n, size=n)
+        sample = per_product.iloc[idx]
+        for k, v in calc(sample).items():
+            distributions[k].append(v)
+    return point_and_ci(point, distributions)
+
+
+def point_and_ci(point, distributions=None, ci_lo=5, ci_hi=95):
+    out = {"point": point}
+    if not distributions or not any(len(v) for v in distributions.values()):
+        out["ci"] = {k: [float(v), float(v)] for k, v in point.items()}
+    else:
+        out["ci"] = {
+            k: [float(min(np.percentile(distributions[k], ci_lo), point[k])),
+                float(max(np.percentile(distributions[k], ci_hi), point[k]))]
+            for k in point
+        }
+    return out
+
+
+def sensitivity(df, assumptions=Assumptions, iterations=300):
+    """Monte-Carlo over the two freight assumptions; tracks both KPI magnitude and
+    which factory each product would move to."""
+    rng = np.random.default_rng(SEED)
+    products = sorted(df["product_name"].unique())
+    results = []
+    choice_log = []
     for i in range(iterations):
-        a=type("Draw",(object,),dict(vars(Assumptions)))
-        a.freight_speed_km_day=float(rng.uniform(400,1600)); a.freight_cost_per_unit_per_1000km=float(rng.uniform(.05,.30))
-        rec=score_products(df,a,top_n=1); moves=rec[~rec.is_incumbent]
-        k=compute_kpis(rec,df.product_name.nunique(),iterations=0,order_frame=df,assumptions=a)["point"]
-        results.append({"iteration":i,**k}); choices.append(moves.set_index("product").candidate_factory.to_dict() if len(moves) else {})
-    return pd.DataFrame(results), choices
+        a = type("Draw", (object,), dict(vars(Assumptions)))()
+        a.freight_speed_km_day = float(rng.uniform(400.0, 1600.0))
+        a.freight_cost_per_unit_per_1000km = float(rng.uniform(0.05, 0.30))
+        a.speed_weight = float(rng.uniform(0.25, 0.75))
+        scored = score_products(df, assumptions=a)
+        recs = top_recommendations(scored)
+        if len(recs):
+            ev = int(recs["product"].nunique()) if len(recs) else 0
+            kpis = compute_kpis(recs, ev, best_model_r2=0.0,
+                                assumptions=a, iterations=0)["point"]
+        else:
+            kpis = {k: 0.0 for k in ("lead_time_reduction_pct", "profit_stability_pct",
+                                     "scenario_confidence", "coverage_pct")}
+        results.append({"iteration": i, "speed_km_day": a.freight_speed_km_day,
+                        "freight_rate": a.freight_cost_per_unit_per_1000km, **kpis})
+        choice_log.append({r["product"]: r["candidate_factory"] for _, r in recs.iterrows()})
+    return pd.DataFrame(results), choice_log
+
+
+def factory_optimiser_summary(df, moves):
+    """Module 1 view: one row per factory with its current portfolio and inbound potential."""
+    summary = []
+    for factory in FACTORY_COORDS:
+        portfolio = df[df["current_factory"] == factory]
+        candidates = moves[moves["candidate_factory"] == factory]
+        summary.append({
+            "factory": factory,
+            "orders": int(portfolio["order_id"].nunique()) if len(portfolio) else 0,
+            "units": float(portfolio["units"].sum()) if len(portfolio) else 0.0,
+            "products": int(portfolio["product_name"].nunique()) if len(portfolio) else 0,
+            "mean_lead_days": float(portfolio["lead_time_days"].mean())
+            if len(portfolio) else np.nan,
+            "mean_distance_km": float(portfolio["distance_km"].mean())
+            if len(portfolio) else np.nan,
+            "gross_profit": float(portfolio["gross_profit"].sum()) if len(portfolio) else 0.0,
+            "mean_candidate_lead_reduction_days": (
+                float(candidates["lead_gain_days"].mean()) if len(candidates) else 0.0),
+            "candidate_products": int(candidates["product"].nunique()) if len(candidates) else 0,
+        })
+    return pd.DataFrame(summary)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    from data_prep import load_and_audit
+    from models import train_and_persist
+
+    df, audit = load_and_audit()
+    report, best_name, pipe, importance, resid, gstd = train_and_persist(df)
+    residual_std = resid.set_index("product")["residual_std"]
+    moves = score_products(df, residual_std=residual_std.to_dict(), global_std=gstd)
+    evaluable = int(moves["product"].nunique())
+    recs = top_recommendations(moves, 10)
+    print("candidate pairs:", len(moves), "| top-10 recommendations:", len(recs),
+          "| evaluable products:", evaluable)
+    print("distinct factories in top 10:", sorted(recs["candidate_factory"].unique()))
+    print("coverage:", moves["product"].nunique(), "/", audit["product_count"])
+    # KPIs are computed over the complete recommendation set (one row per product),
+    # not just the displayed top 10, so coverage reflects the full recommendation set.
+    kpis = compute_kpis(moves, evaluable, report.iloc[0]["r2"])
+    print(json.dumps(kpis, indent=2))
+    print(recs[["product", "current_factory", "candidate_factory", "orders",
+                "lead_gain_days", "delta_distance_km", "risk", "risk_level",
+                "capability_gap", "score"]].to_string(index=False))
+    print("\nrisk component breakdown for the top move:")
+    print(json.dumps(parse_components(recs.iloc[0]["risk_components"]), indent=2))

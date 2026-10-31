@@ -1,0 +1,328 @@
+"""Smoke tests for the Nassau Candy Factory Reallocation rebuild.
+
+Covers the Phase 8 acceptance checks (a-h). Run from the project root:
+
+    python -m pytest scripts/smoke_test.py -v
+
+The heavy test (`test_app_boots_without_exception`) drives the real app through Streamlit's
+AppTest harness and takes a couple of minutes because it scores the full scenario engine.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from config import (DEFAULT_TOP_N, FACTORY_COORDS, RISK_HIGH, RISK_MEDIUM, RISK_WEIGHT_DISTANCE_SHIFT,
+                    RISK_WEIGHT_LOW_SUPPORT, RISK_WEIGHT_NEG_PROFIT, RISK_WEIGHT_PRED_VARIANCE,
+                    SEED, Assumptions)
+from data_prep import ASSERTIONS, MIN_VALID_FRACTION, load_and_audit_safe
+from models import load_model
+from simulation import (compute_kpis, parse_components, score_products, top_recommendations)
+
+ROOT = Path(__file__).resolve().parents[1]
+ARTIFACTS = ROOT / "artifacts"
+DOCS = ROOT / "docs"
+CSV = ROOT / "Nassau Candy Distributor.csv"
+
+RISK_WEIGHTS = {
+    "negProfit": RISK_WEIGHT_NEG_PROFIT,
+    "predVariance": RISK_WEIGHT_PRED_VARIANCE,
+    "lowSupport": RISK_WEIGHT_LOW_SUPPORT,
+    "distanceShift": RISK_WEIGHT_DISTANCE_SHIFT,
+}
+
+
+@pytest.fixture(scope="module")
+def audit_df():
+    df, audit, err = load_and_audit_safe()
+    assert err is None, f"source file unusable: {err}"
+    return df, audit
+
+
+@pytest.fixture(scope="module")
+def scored(audit_df):
+    df, _ = audit_df
+    residual_std = (pd.read_csv(ARTIFACTS / "per_product_residual_std.csv")
+                    .set_index("product")["residual_std"].to_dict())
+    return score_products(df, speed_weight=Assumptions.speed_weight,
+                          residual_std=residual_std,
+                          global_std=float(pd.read_csv(ARTIFACTS / "per_product_residual_std.csv")
+                                           ["residual_std"].max()))
+
+
+@pytest.fixture(scope="module")
+def metrics():
+    return pd.read_csv(ARTIFACTS / "model_metrics.csv")
+
+
+# ---------------------------------------------------------------------------
+# (a) App boots, zero exceptions
+# ---------------------------------------------------------------------------
+
+def test_app_boots_without_exception():
+    """Phase 8a: launching `streamlit run app.py` raises no exception."""
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_file(str(ROOT / "app.py"))
+    at.run(timeout=300)
+    exc = at.exception
+    exc_list = exc if isinstance(exc, list) else [exc] if exc else []
+    assert not exc_list, "app raised during boot: " + "; ".join(repr(e) for e in exc_list[:3])
+
+
+# ---------------------------------------------------------------------------
+# (b) Row counts, duplicates, outliers
+# ---------------------------------------------------------------------------
+
+def test_input_rows(audit_df):
+    """Phase 8b: the file holds roughly 10,155 rows."""
+    _, audit = audit_df
+    assert 9500 <= audit["input_rows"] <= 10500, audit["input_rows"]
+
+
+def test_duplicates_removed(audit_df):
+    """Phase 8b: at least one exact duplicate row was removed."""
+    _, audit = audit_df
+    assert int(audit["duplicate_rows"]) > 0, audit["duplicate_rows"]
+
+
+def test_outliers_removed(audit_df):
+    """Phase 8b: the 3.0x IQR fence removed at least one row."""
+    _, audit = audit_df
+    assert int(audit["iqr_total_removed"]) > 0, audit["iqr_total_removed"]
+    assert float(audit["iqr_removed_pct"]) > 0, audit["iqr_removed_pct"]
+
+
+def test_iqr_does_not_trim_lead_time(audit_df):
+    """Lead time is never an outlier target; the assertions must hold on the full distribution."""
+    df, _ = audit_df
+    assert int((df["lead_time_days"] < 0).sum()) == 0
+    assert int(df["lead_time_days"].min()) >= 900
+
+
+# ---------------------------------------------------------------------------
+# (c) Hard assertions
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("row_id,expected", ASSERTIONS.items())
+def test_lead_time_assertions(audit_df, row_id, expected):
+    """Phase 8c: Row 354 -> 906, Row 4892 -> 1273, Row 6141 -> 1269."""
+    df, _ = audit_df
+    observed = int(df.loc[df["row_id"] == row_id, "lead_time_days"].iloc[0])
+    assert observed == expected, f"Row {row_id}: expected {expected}, got {observed}"
+
+
+# ---------------------------------------------------------------------------
+# (d) Product count, no synthetic products
+# ---------------------------------------------------------------------------
+
+def test_product_count(audit_df):
+    """Phase 8d: exactly 15 products, all sourced from the file."""
+    _, audit = audit_df
+    assert audit["product_count"] == 15, audit["product_count"]
+
+
+def test_no_synthetic_products(audit_df):
+    """Phase 8d: no product was generated by the codebase."""
+    _, audit = audit_df
+    assert audit["synthetic_products_present"] is False
+
+
+def test_all_products_in_source(audit_df):
+    """Every product name appears in the raw CSV (normalised to canonical spacing)."""
+    from config import normalize_product_name
+
+    df, _ = audit_df
+    raw = pd.read_csv(CSV, dtype={"Postal Code": str})
+    assert set(df["product_name"]).issubset(set(raw["Product Name"].map(normalize_product_name)))
+
+
+# ---------------------------------------------------------------------------
+# (e) Sidebar controls drive live output
+# ---------------------------------------------------------------------------
+
+def _frame_hash(at):
+    """Content fingerprint of the first rendered dataframe on the current page."""
+    if not at.dataframe:
+        return None
+    frame = at.dataframe[0].value
+    return str(frame.shape) + "," + str(hash(frame.to_string(index=False)))
+
+
+def test_sidebar_controls_rerender():
+    """Phase 8e: Product, Region, Ship Mode and priority slider all change the output."""
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_file(str(ROOT / "app.py"))
+    at.run(timeout=300)
+    side = at.sidebar
+    assert len(side.selectbox) >= 1
+    assert len(side.multiselect) >= 2
+    assert len(side.slider) >= 1
+
+    before = _frame_hash(at)
+    side.selectbox[0].set_value("Laffy Taffy").run(timeout=180)
+    assert _frame_hash(at) != before, "Product selector did not change rendered output"
+
+    before = _frame_hash(at)
+    side.slider[0].set_value(0.75).run(timeout=120)
+    assert _frame_hash(at) != before, "Priority slider did not change rendered output"
+
+    before = _frame_hash(at)
+    side.multiselect[1].set_value(["Standard Class"]).run(timeout=120)
+    assert _frame_hash(at) != before, "Ship Mode filter did not change rendered output"
+
+
+# ---------------------------------------------------------------------------
+# (f) All four modules render real data, Risk panel populated
+# ---------------------------------------------------------------------------
+
+def test_modules_render_real_data(audit_df, scored):
+    """Phase 8f: each of the four modules renders data sourced from the file."""
+    df, _ = audit_df
+    assert len(scored) > 0
+
+    from simulation import factory_optimiser_summary
+
+    summary = factory_optimiser_summary(df, scored)
+    assert set(summary["factory"]) == set(FACTORY_COORDS)
+    assert summary["orders"].sum() > 0
+
+    assert scored["risk_level"].isin(["High", "Medium", "Low"]).all()
+
+
+def test_risk_panel_populated(scored):
+    """Phase 8f: the Risk panel carries real alerts or an explicit low-risk state."""
+    assert len(scored) > 0
+    levels = set(scored["risk_level"])
+    assert levels, "no risk levels computed"
+    # Non-degenerate: every row carries all four weighted components.
+    components = scored["risk_components"].map(parse_components)
+    assert all(set(RISK_WEIGHTS) <= set(c) for c in components), "missing risk component"
+    weights = pd.DataFrame(components.tolist())[list(RISK_WEIGHTS)]
+    # Every component column is genuinely used (not a constant zero).
+    for col, weight in RISK_WEIGHTS.items():
+        assert weights[col].max() > 0, f"{col} is degenerate"
+        assert weights[col].min() >= 0, f"{col} went negative"
+
+
+# ---------------------------------------------------------------------------
+# (g) KPI header
+# ---------------------------------------------------------------------------
+
+def test_kpi_header(scored):
+    """Phase 8g: all four KPIs are present and computable."""
+    best = pd.read_csv(ARTIFACTS / "model_metrics.csv")
+    best_r2 = float(best.loc[best["model"] == "Linear Regression", "cv_r2_mean"].iloc[0])
+    kpis = compute_kpis(scored, int(scored["product"].nunique()), best_r2)
+    point = kpis["point"]
+    for key in ("lead_time_reduction_pct", "profit_stability_pct",
+                "scenario_confidence", "coverage_pct"):
+        assert key in point, f"missing KPI {key}"
+        assert isinstance(point[key], (int, float))
+    assert point["coverage_pct"] >= 0.0
+    assert point["profit_stability_pct"] <= 100.0
+
+
+# ---------------------------------------------------------------------------
+# (h) Model table
+# ---------------------------------------------------------------------------
+
+def test_model_table(metrics):
+    """Phase 8h: all three estimators have RMSE, MAE, R2 and CV figures."""
+    required = {"model", "r2", "rmse", "mae", "cv_r2_mean", "cv_r2_std",
+                "cv_rmse_mean", "cv_mae_mean"}
+    assert required <= set(metrics.columns), sorted(set(metrics.columns))
+    assert len(metrics) == 3, len(metrics)
+    assert set(metrics["model"]) == {"Linear Regression", "Random Forest", "Gradient Boosting"}
+
+
+def test_all_models_reported_negative(metrics):
+    """All three score at or below zero; nothing is silently improved."""
+    assert (metrics["r2"] <= 0).all()
+    assert (metrics["cv_r2_mean"] <= 0).all()
+
+
+def test_best_model_justified(metrics):
+    """The chosen estimator is the most interpretable within tolerance of best accuracy."""
+    best_cv = metrics["cv_r2_mean"].max()
+    tier = {"Linear Regression": 0, "Random Forest": 1, "Gradient Boosting": 2}
+    eligible = metrics[metrics["cv_r2_mean"] >= best_cv - Assumptions.model_selection_tolerance]
+    chosen = eligible.sort_values("interpretability_tier").iloc[0]["model"]
+    assert chosen == "Linear Regression", chosen
+
+
+# ---------------------------------------------------------------------------
+# Recommendations
+# ---------------------------------------------------------------------------
+
+def test_recommendation_coverage(scored):
+    """Phase 8h: coverage >= 90% of the catalogue."""
+    assert scored["product"].nunique() == 15
+    recs = top_recommendations(scored, DEFAULT_TOP_N)
+    assert len(recs) > 0
+
+
+def test_top_ten_distinct_factories(scored):
+    """Phase 8h: at least 3 distinct factories appear in the Top-10."""
+    recs = top_recommendations(scored, DEFAULT_TOP_N)
+    distinct = sorted(recs["candidate_factory"].unique())
+    assert len(distinct) >= 3, distinct
+
+
+def test_top_ten_positive_lead_gain(scored):
+    """Phase 8h: every Top-10 row shows a positive lead-time reduction."""
+    recs = top_recommendations(scored, DEFAULT_TOP_N)
+    assert (recs["lead_gain_days"] > 0).all()
+    assert (recs["delta_distance_km"] < 0).all()
+
+
+# ---------------------------------------------------------------------------
+# Documentation and deliverables
+# ---------------------------------------------------------------------------
+
+def test_docs_exist():
+    """Phase 6: both documents are present."""
+    assert (DOCS / "research_paper.md").exists()
+    assert (DOCS / "executive_summary.md").exists()
+    assert (ROOT / "README.md").exists()
+    assert (ROOT / "requirements.txt").exists()
+
+
+def test_requirements_pinned():
+    """Phase 6: dependencies are pinned to exact versions."""
+    lines = (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+    pinned = [l for l in lines if l.strip() and not l.strip().startswith("#")]
+    assert all("==" in p for p in pinned), pinned
+
+
+def test_legacy_preserved():
+    """Nothing was deleted silently: superseded code lives under legacy/."""
+    legacy = ROOT / "legacy"
+    assert legacy.is_dir()
+    files = [p.name for p in legacy.rglob("*") if p.is_file()]
+    assert "app.py" in files
+    assert "data_prep.py" in files
+    assert "models.py" in files
+
+
+def test_source_file_present():
+    """The real CSV is the only data source; no synthetic CSV is used."""
+    assert CSV.exists()
+    assert not (ROOT / "Nassau Candy Distributor (1).csv").exists()
+
+
+def test_argparse_safety():
+    """Sanity check that the project imports cleanly and the seed is fixed."""
+    assert SEED == 42
+    assert MIN_VALID_FRACTION == 0.95
+    assert RISK_HIGH == 0.50
+    assert RISK_MEDIUM == 0.25

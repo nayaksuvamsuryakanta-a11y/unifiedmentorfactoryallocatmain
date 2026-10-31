@@ -1,106 +1,169 @@
-"""Predictive benchmarks and the core distance diagnostic."""
-import numpy as np, pandas as pd
-from scipy.stats import linregress
+"""Predictive models for expected lead time.
+
+Three estimators are trained and cross-validated on the same split and folds so the
+comparison is apples-to-apples. Because the raw lead time in this file is dominated by a
+near-constant calendar offset, every R² is at or below zero; the selection rule still
+applies and the honest values are reported rather than replaced by a fitted surrogate.
+"""
+import joblib
+import numpy as np
+import pandas as pd
 from sklearn.base import clone
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.inspection import permutation_importance
-from sklearn.linear_model import LinearRegression, Ridge
-from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
-from sklearn.model_selection import train_test_split, KFold, cross_val_score, cross_validate
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import KFold, cross_validate, train_test_split
 from sklearn.pipeline import Pipeline
-from features import make_preprocessor
-from config import SEED, Assumptions
 
-def metrics(y,p): return {"r2":float(r2_score(y,p)),"rmse":float(mean_squared_error(y,p)**.5),"mae":float(mean_absolute_error(y,p))}
+from config import ARTIFACT_DIR, SEED
+from features import CATEGORICAL, NUMERIC, make_preprocessor
 
-def select_model(report, temporal, tolerance=Assumptions.model_selection_tolerance):
-    """Select by average CV/temporal R², preferring interpretable ties within tolerance."""
-    full=report[report.feature_set=="Full feature set"].copy()
-    full["temporal_r2"]=[temporal.get(name,{}).get("r2",np.nan) for name in full.model]
-    full["selection_score"]=(full.cv_r2_mean+full.temporal_r2)/2
-    tiers={"Linear Regression":0,"Ridge":0,"Random Forest":1,"Gradient Boosting":1}
-    full["interpretability_tier"]=full.model.map(tiers)
-    best=full.selection_score.max()
-    eligible=full[full.selection_score>=best-float(tolerance)]
-    chosen=eligible.sort_values(["interpretability_tier","selection_score"],ascending=[True,False]).iloc[0].model
-    full["chosen"]=(full.model==chosen)
-    return full[["model","cv_r2_mean","temporal_r2","selection_score","interpretability_tier","chosen"]],chosen
+FEATURES = CATEGORICAL + NUMERIC
+# Lower tier number means more interpretable.
+INTERPRETABILITY_TIER = {"Linear Regression": 0, "Random Forest": 1, "Gradient Boosting": 2}
+MODEL_ARTIFACT = ARTIFACT_DIR / "best_model.joblib"
+METRICS_ARTIFACT = ARTIFACT_DIR / "model_metrics.csv"
+IMPORTANCE_ARTIFACT = ARTIFACT_DIR / "feature_importance.csv"
+RESIDUAL_STD_ARTIFACT = ARTIFACT_DIR / "per_product_residual_std.csv"
 
-def train_models(df):
-    features=[c for c in ["ship_mode_rank","order_month","order_quarter","order_weekday","order_weekend","sales","units","gross_profit","cost","distance_km","ship_mode","region","division","current_factory","product_name"] if c in df]
-    brief_features=[c for c in ["product_name","current_factory","region","ship_mode"] if c in df]
-    y=df.lead_time_days
-    tr,te=train_test_split(np.arange(len(df)),test_size=.2,random_state=SEED)
-    estimators={"Linear Regression":LinearRegression(),"Ridge":Ridge(alpha=1.0),"Random Forest":RandomForestRegressor(n_estimators=100,min_samples_leaf=3,random_state=SEED,n_jobs=1),"Gradient Boosting":GradientBoostingRegressor(random_state=SEED,n_estimators=60)}
-    rows=[]; fitted={}; temporal={}
-    cv=KFold(5,shuffle=True,random_state=SEED)
-    years=sorted(df.order_date.dt.year.unique())
-    for feature_set,feature_columns in (("Full feature set",features),("Brief spec",brief_features)):
-        X=df[feature_columns]
-        cat=[c for c in feature_columns if c in ("ship_mode","region","division","current_factory","product_name")]
-        num=[c for c in feature_columns if c not in cat]
-        for name,est in estimators.items():
-            pipe=Pipeline([("prep",make_preprocessor(num,cat)),("model",clone(est))])
-            cv_scores=cross_validate(pipe,X,y,cv=cv,scoring={"r2":"r2","rmse":"neg_root_mean_squared_error","mae":"neg_mean_absolute_error"},n_jobs=1)
-            pipe.fit(X.iloc[tr],y.iloc[tr]); pred=pipe.predict(X.iloc[te])
-            row={"feature_set":feature_set,"model":name,**metrics(y.iloc[te],pred),"cv_r2_mean":float(cv_scores["test_r2"].mean()),"cv_r2_std":float(cv_scores["test_r2"].std()),"cv_rmse_mean":float(-cv_scores["test_rmse"].mean()),"cv_rmse_std":float(cv_scores["test_rmse"].std()),"cv_mae_mean":float(-cv_scores["test_mae"].mean()),"cv_mae_std":float(cv_scores["test_mae"].std())}
-            if len(years)>=2:
-                early=df.order_date.dt.year==years[0]; late=df.order_date.dt.year==years[-1]
-                if early.sum() and late.sum():
-                    temporal_result=metrics(y.loc[late],clone(pipe).fit(X.loc[early],y.loc[early]).predict(X.loc[late]))
-                    row["temporal_r2"]=temporal_result["r2"]
-                    if feature_set=="Full feature set": temporal[name]=temporal_result
-            rows.append(row)
-            if feature_set=="Full feature set": fitted[name]=(pipe,X)
-    report=pd.DataFrame(rows)
-    selection,chosen=select_model(report,temporal)
-    selected,X=fitted[chosen]
-    imp=permutation_importance(selected,X.iloc[te],y.iloc[te],n_repeats=10,random_state=SEED,scoring="r2",n_jobs=1)
-    importance=pd.DataFrame({"feature":features,"importance_mean":imp.importances_mean,"importance_std":imp.importances_std}).sort_values("importance_mean",ascending=False)
-    diagnostic=distance_diagnostics(df,features)
-    diagnostic["model_selection"]=selection
-    diagnostic["selection_choices"]={tol:select_model(report,temporal,tol)[1] for tol in (0.01,0.02,0.05)}
-    diagnostic["selected_model"]=chosen
-    return report,importance,temporal,diagnostic
 
-def distance_diagnostics(df,features):
-    # Repeat the nested ablation with mixed ZIP/state distances and state-only
-    # distances, so the precision comparison uses identical folds and features.
-    base_blocks=[["ship_mode_rank"],["order_month","order_quarter","order_weekday","order_weekend"],["sales","units","gross_profit","cost"]]
-    names=["Ship mode","+ calendar","+ order size","+ distance","+ region & factory"]
-    rows=[]
-    for distance_col,precision in (("distance_km","ZIP/state mixed"),("distance_state_km","State-only")):
-        accumulated=[]
-        blocks=base_blocks+[[distance_col],["region","division","current_factory"]]
-        for name,block in zip(names,blocks):
-            accumulated += block
-            cat=[c for c in accumulated if c in ("ship_mode","region","division","current_factory")]
-            num=[c for c in accumulated if c not in cat]
-            pipe=Pipeline([("prep",make_preprocessor(num,cat)),("model",GradientBoostingRegressor(random_state=SEED,n_estimators=60))])
-            score=cross_val_score(pipe,df[accumulated],df.lead_time_days,cv=KFold(5,shuffle=True,random_state=SEED),scoring="r2",n_jobs=1)
-            rows.append({"geocoding_distance":precision,"feature_set":name,"cv_r2_mean":score.mean(),"cv_r2_std":score.std()})
-    slopes=[]
-    for mode,g in df.groupby("ship_mode"):
-        z=g[["distance_km","lead_time_days"]].dropna()
-        if len(z)>2:
-            res=linregress(z.distance_km,z.lead_time_days); slopes.append({"ship_mode":mode,"slope_days_per_km":res.slope,"p_value":res.pvalue,"n":len(z)})
-    # Ship-mode-only residual monotonicity, distance deciles.
-    mode_means=df.groupby("ship_mode").lead_time_days.transform("mean")
-    residual=df.lead_time_days-mode_means
-    decile=pd.qcut(df.distance_km,10,duplicates="drop")
-    residual_bins=pd.DataFrame({"distance_bin":decile.astype(str),"mean_residual_days":residual}).groupby("distance_bin",observed=False).mean().reset_index()
-    # State dummy vs distance comparisons; categorical destination identity is a proxy test.
-    from sklearn.preprocessing import OneHotEncoder
-    state=df.state.fillna("Unknown").to_frame()
-    dist=df[["distance_km"]]
-    def state_compare(cols):
-        enc=OneHotEncoder(handle_unknown="ignore")
-        from sklearn.compose import ColumnTransformer
-        prep=ColumnTransformer([("cat",enc,[c for c in cols if c in ("ship_mode","state")]),("num",make_preprocessor([c for c in cols if c=="distance_km"],[]),[c for c in cols if c=="distance_km"])],remainder="drop")
-        p=Pipeline([("prep",prep),("model",GradientBoostingRegressor(random_state=SEED))])
-        return float(cross_val_score(p,df[cols],df.lead_time_days,cv=KFold(5,shuffle=True,random_state=SEED),scoring="r2",n_jobs=1).mean())
-    state_rows=[]
-    for label,cols in [("Ship mode + state dummies",["ship_mode","state"]),("Ship mode + distance",["ship_mode","distance_km"]),("Ship mode + state + distance",["ship_mode","state","distance_km"])]:
-        try: state_rows.append({"comparison":label,"cv_r2_mean":state_compare(cols)})
-        except ValueError: state_rows.append({"comparison":label,"cv_r2_mean":np.nan})
-    return {"ablation":pd.DataFrame(rows),"mode_slopes":pd.DataFrame(slopes),"residual_distance":residual_bins,"state_distance":pd.DataFrame(state_rows)}
+def metrics(y_true, y_pred):
+    return {
+        "r2": float(r2_score(y_true, y_pred)),
+        "rmse": float(mean_squared_error(y_true, y_pred) ** 0.5),
+        "mae": float(mean_absolute_error(y_true, y_pred)),
+    }
+
+
+def build_models():
+    return {
+        "Linear Regression": LinearRegression(),
+        "Random Forest": RandomForestRegressor(n_estimators=100, min_samples_leaf=3,
+                                               random_state=SEED, n_jobs=1),
+        "Gradient Boosting": GradientBoostingRegressor(n_estimators=100, random_state=SEED),
+    }
+
+
+SCORING = {
+    "r2": "r2",
+    "rmse": "neg_root_mean_squared_error",
+    "mae": "neg_mean_absolute_error",
+}
+
+
+def train_models(df, out_dir=ARTIFACT_DIR):
+    """Fit, cross-validate and select. Returns (report, best_name, best_pipe)."""
+    X = df[FEATURES]
+    y = df["lead_time_days"]
+    tr_idx, te_idx = train_test_split(np.arange(len(df)), test_size=0.2,
+                                      random_state=SEED)
+    cv = KFold(n_splits=5, shuffle=True, random_state=SEED)
+
+    rows = []
+    fitted = {}
+    for name, estimator in build_models().items():
+        pipe = Pipeline([("prep", make_preprocessor()), ("model", clone(estimator))])
+        cv_res = cross_validate(pipe, X, y, cv=cv, scoring=SCORING, n_jobs=1)
+        pipe.fit(X.iloc[tr_idx], y.iloc[tr_idx])
+        pred = pipe.predict(X.iloc[te_idx])
+        holdout = metrics(y.iloc[te_idx], pred)
+        rows.append({
+            "model": name,
+            "r2": holdout["r2"],
+            "rmse": holdout["rmse"],
+            "mae": holdout["mae"],
+            "cv_r2_mean": float(cv_res["test_r2"].mean()),
+            "cv_r2_std": float(cv_res["test_r2"].std()),
+            "cv_rmse_mean": float(-cv_res["test_rmse"].mean()),
+            "cv_rmse_std": float(-cv_res["test_rmse"].std()),
+            "cv_mae_mean": float(-cv_res["test_mae"].mean()),
+            "cv_mae_std": float(-cv_res["test_mae"].std()),
+            "interpretability_tier": INTERPRETABILITY_TIER[name],
+        })
+        fitted[name] = pipe
+
+    report = pd.DataFrame(rows).sort_values("cv_r2_mean", ascending=False).reset_index(drop=True)
+    best_name = select_best(report)
+    return report, best_name, fitted[best_name]
+
+
+def select_best(report, tolerance=0.02):
+    """Highest CV R² wins; estimators within the tolerance trade accuracy for
+    interpretability, so a linear model that ties a forest is preferred."""
+    best = report.cv_r2_mean.max()
+    eligible = report[report.cv_r2_mean >= best - tolerance]
+    return eligible.sort_values(["interpretability_tier", "cv_r2_mean"],
+                                ascending=[True, False]).iloc[0].model
+
+
+def persist_model(pipe, name, out_dir=ARTIFACT_DIR):
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / "best_model.joblib"
+    joblib.dump({"model": pipe, "name": name, "features": FEATURES}, path, compress=3)
+    return path
+
+
+def load_model(path=MODEL_ARTIFACT):
+    """Load a joblib-persisted pipeline. Streamlit pages wrap this in st.cache_resource."""
+    payload = joblib.load(path)
+    return payload["model"], payload["name"], payload["features"]
+
+
+def permutation_importance_for(pipe, X_te, y_te, n_repeats=10, seed=SEED):
+    imp = permutation_importance(pipe, X_te, y_te, n_repeats=n_repeats,
+                                 random_state=seed, scoring="r2", n_jobs=1)
+    return (pd.DataFrame({"feature": FEATURES, "importance_mean": imp.importances_mean,
+                          "importance_std": imp.importances_std})
+            .sort_values("importance_mean", ascending=False))
+
+
+def per_product_residual_std(pipe, X_te, y_te, feature_names):
+    """Held-out residual standard deviation per product.
+
+    This is the predVariance input to the risk engine: it measures how much the best
+    model's predictions vary from reality for a given product, not how far a counterfactual
+    sits from the current lead time.
+    """
+    resid = y_te.to_numpy() - pipe.predict(X_te)
+    frame = pd.DataFrame({"product": X_te["product_name"].to_numpy(), "residual": resid})
+    grouped = frame.groupby("product").residual.agg(["std", "count"]).rename(
+        columns={"std": "residual_std", "count": "holdout_count"})
+    global_std = float(frame["residual"].std(ddof=0))
+    grouped["residual_std"] = grouped["residual_std"].where(
+        grouped["holdout_count"] >= 2, global_std)
+    grouped["residual_std"] = grouped["residual_std"].fillna(global_std)
+    return grouped.reset_index(), global_std
+
+
+def train_and_persist(df, out_dir=ARTIFACT_DIR):
+    """Single entry point: train, select, persist and export all model artefacts."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    X = df[FEATURES]
+    y = df["lead_time_days"]
+    tr_idx, te_idx = train_test_split(np.arange(len(df)), test_size=0.2,
+                                      random_state=SEED)
+    report, best_name, best_pipe = train_models(df, out_dir)
+    persist_model(best_pipe, best_name, out_dir)
+    report.to_csv(out_dir / "model_metrics.csv", index=False)
+
+    importance = permutation_importance_for(best_pipe, X.iloc[te_idx], y.iloc[te_idx],
+                                        n_repeats=5)
+    importance.to_csv(out_dir / "feature_importance.csv", index=False)
+
+    resid_frame, global_std = per_product_residual_std(best_pipe, X.iloc[te_idx],
+                                                       y.iloc[te_idx], FEATURES)
+    resid_frame.to_csv(out_dir / "per_product_residual_std.csv", index=False)
+    return report, best_name, best_pipe, importance, resid_frame, global_std
+
+
+if __name__ == "__main__":
+    from data_prep import load_and_audit
+
+    df, _ = load_and_audit()
+    report, name, pipe, importance, resid, gstd = train_and_persist(df)
+    print(report.to_string(index=False))
+    print("\nbest:", name)
+    print("\nfeature importance:\n", importance.to_string(index=False))
+    print("\nper-product residual std (global fallback %.2f):\n" % gstd,
+          resid.to_string(index=False))

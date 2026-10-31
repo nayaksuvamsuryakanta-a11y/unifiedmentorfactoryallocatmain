@@ -1,0 +1,6 @@
+cwd: C:\Users\nayak\Desktop\Intership Projects\factoryallocatmain
+sys.executable: C:\Users\nayak\AppData\Local\Programs\Python\Python312\python.exe
+venv exists: False
+venv python: False
+pytest importable: False
+streamlit importable: False

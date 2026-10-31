@@ -1,0 +1,81 @@
+EXIT 1
+
+============================= test session starts =============================
+platform win32 -- Python 3.14.0, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\nayak\Desktop\Intership Projects\factoryallocatmain\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\nayak\Desktop\Intership Projects\factoryallocatmain
+plugins: anyio-4.15.1
+collecting ... collected 26 items
+
+scripts/smoke_test.py::test_app_boots_without_exception PASSED           [  3%]
+scripts/smoke_test.py::test_input_rows PASSED                            [  7%]
+scripts/smoke_test.py::test_duplicates_removed PASSED                    [ 11%]
+scripts/smoke_test.py::test_outliers_removed PASSED                      [ 15%]
+scripts/smoke_test.py::test_iqr_does_not_trim_lead_time PASSED           [ 19%]
+scripts/smoke_test.py::test_lead_time_assertions[354-906] PASSED         [ 23%]
+scripts/smoke_test.py::test_lead_time_assertions[4892-1273] PASSED       [ 26%]
+scripts/smoke_test.py::test_lead_time_assertions[6141-1269] PASSED       [ 30%]
+scripts/smoke_test.py::test_product_count PASSED                         [ 34%]
+scripts/smoke_test.py::test_no_synthetic_products PASSED                 [ 38%]
+scripts/smoke_test.py::test_all_products_in_source PASSED                [ 42%]
+scripts/smoke_test.py::test_sidebar_controls_rerender FAILED             [ 46%]
+scripts/smoke_test.py::test_modules_render_real_data PASSED              [ 50%]
+scripts/smoke_test.py::test_risk_panel_populated PASSED                  [ 53%]
+scripts/smoke_test.py::test_kpi_header PASSED                            [ 57%]
+scripts/smoke_test.py::test_model_table PASSED                           [ 61%]
+scripts/smoke_test.py::test_all_models_reported_negative PASSED          [ 65%]
+scripts/smoke_test.py::test_best_model_justified PASSED                  [ 69%]
+scripts/smoke_test.py::test_recommendation_coverage PASSED               [ 73%]
+scripts/smoke_test.py::test_top_ten_distinct_factories PASSED            [ 76%]
+scripts/smoke_test.py::test_top_ten_positive_lead_gain PASSED            [ 80%]
+scripts/smoke_test.py::test_docs_exist PASSED                            [ 84%]
+scripts/smoke_test.py::test_requirements_pinned PASSED                   [ 88%]
+scripts/smoke_test.py::test_legacy_preserved PASSED                      [ 92%]
+scripts/smoke_test.py::test_source_file_present PASSED                   [ 96%]
+scripts/smoke_test.py::test_argparse_safety PASSED                       [100%]
+
+================================== FAILURES ===================================
+_______________________ test_sidebar_controls_rerender ________________________
+
+    def test_sidebar_controls_rerender():
+        """Phase 8e: Product, Region, Ship Mode and priority slider all change the output."""
+        from streamlit.testing.v1 import AppTest
+    
+        at = AppTest.from_file(str(ROOT / "app.py"))
+        at.run(timeout=300)
+        side = at.sidebar
+        assert len(side.selectbox) >= 1
+        assert len(side.multiselect) >= 2
+        assert len(side.slider) >= 1
+    
+        before = _frame_hash(at)
+        side.selectbox[0].set_value("Laffy Taffy").run(timeout=180)
+        assert _frame_hash(at) != before, "Product selector did not change rendered output"
+    
+        before = _frame_hash(at)
+        side.slider[0].set_value(0.75).run(timeout=120)
+>       assert _frame_hash(at) != before, "Priority slider did not change rendered output"
+E       AssertionError: Priority slider did not change rendered output
+E       assert '(1, 12),5026961810908963139' != '(1, 12),5026961810908963139'
+E        +  where '(1, 12),5026961810908963139' = _frame_hash(AppTest(\n    _script_path='C:\\Users\\nayak\\Desktop\\Intership Projects\\factoryallocatmain\\app.py',\n    default_timeout=3,\n    _session_state={$$ID-2092f5d8bda3f8f626cfb957c5d94c37-sel_product: 'Laffy Taffy', $$STREAMLIT_INTERNAL_KEY_TESTING: {'$$ID-2092f5d8bda3f8f626cfb957c5d94c37-sel_product': <class 'str'>, '$$ID-42161acb0d2af60172ef02544c735f61-sel_regions': <class 'str'>, '$$ID-f68ca54205fb1def38087223c4fbd55e-sel_modes': <class 'str'>, '$$ID-9182d538bc93904773e34032c9e319ee-None': False}, $$ID-9182d538bc93904773e34032c9e319ee-None: False, $$STREAMLIT_INTERNAL_KEY_SCRIPT_RUN_WITHOUT_ERRORS: True, $$ID-ce6ac8daa0751d673fa8fcf69918988a-opt_slider: 0.75, $$ID-42161acb0d2af60172ef02544c735f61-sel_regions: ['Atlantic', 'Gulf', 'Interior', 'Pacific'], $$ID-f68ca54205fb1def38087223c4fbd55e-sel_modes: ['First Class', 'Same Day', 'Second Class', 'Standard Class']},\n    session_state={'sel_product': 'Laffy Taffy', 'opt_slider': 0.75, 'sel_regions': ['Atlantic', 'Gulf', 'Interior', 'Pacific'], 'sel_modes': ['First Class', 'Same Day', 'Second Class', 'Standard Class']},\n    _registered_pages={\n        9948601f2182f039248d47dfd3b330bc: {'page_script_hash': '9948601f2182f039248d47dfd3b...Toffee', 'Kazookles', 'Laffy Taffy', 'Lickable Wallpaper', 'Nerds', 'SweeTARTS', 'Wonka Bar - Fudge Mallows', 'Wonka Bar - Milk Chocolate', 'Wonka Bar - Nutty Crunch Surprise', 'Wonka Bar - Scrumdiddlyumptious', 'Wonka Bar - Triple Dazzle Caramel', 'Wonka Gum']),\n                2: Multiselect(key='sel_regions', label='Region selector', options=['Atlantic', 'Gulf', 'Interior', 'Pacific']),\n                3: Multiselect(key='sel_modes', label='Ship Mode filter', options=['First Class', 'Same Day', 'Second Class', 'Standard Class']),\n                4: Slider(key='opt_slider', label='Optimization priority', data_type=1, max=1.0, step=0.05, help='Balances lead-time reduction against profit impact. Risk reduction keeps its own fixed weight (0.30).'),\n                5: Metric(proto=label: "Filtered order lines"\n                body: "10"\n                direction: NONE\n                color: GRAY\n                label_visibility {\n                }\n                , label='Filtered order lines', color=2),\n                6: Caption(),\n                7: Divider(),\n                8: Caption()\n            }\n        ),\n        2: SpecialBlock(\n            type='event'\n        )\n    }\n))
+
+scripts\smoke_test.py:177: AssertionError
+---------------------------- Captured stderr call -----------------------------
+2026-10-31 18:40:53.141 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+------------------------------ Captured log call ------------------------------
+WARNING  streamlit.runtime.scriptrunner_utils.script_run_context:script_run_context.py:479 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+============================== warnings summary ===============================
+.venv\Lib\site-packages\_pytest\cacheprovider.py:469
+  C:\Users\nayak\Desktop\Intership Projects\factoryallocatmain\.venv\Lib\site-packages\_pytest\cacheprovider.py:469: PytestCacheWarning: could not create cache path C:\Users\nayak\Desktop\Intership Projects\factoryallocatmain\.pytest_cache\v\cache\nodeids: [WinError 183] Cannot create a file when that file already exists: 'C:\\Users\\nayak\\Desktop\\Intership Projects\\factoryallocatmain\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+.venv\Lib\site-packages\_pytest\cacheprovider.py:423
+  C:\Users\nayak\Desktop\Intership Projects\factoryallocatmain\.venv\Lib\site-packages\_pytest\cacheprovider.py:423: PytestCacheWarning: could not create cache path C:\Users\nayak\Desktop\Intership Projects\factoryallocatmain\.pytest_cache\v\cache\lastfailed: [WinError 183] Cannot create a file when that file already exists: 'C:\\Users\\nayak\\Desktop\\Intership Projects\\factoryallocatmain\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/lastfailed", self.lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED scripts/smoke_test.py::test_sidebar_controls_rerender - AssertionError...
+================== 1 failed, 25 passed, 2 warnings in 19.77s ==================
+
+--- STDERR ---

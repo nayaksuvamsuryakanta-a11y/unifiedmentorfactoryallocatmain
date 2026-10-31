@@ -8,3 +8,9 @@ font = "sans serif"
 
 [browser]
 gatherUsageStats = false
+
+[server]
+enableCORS = false
+enableXsrfProtection = true
+runOnSave = false
+maxUploadSize = 200

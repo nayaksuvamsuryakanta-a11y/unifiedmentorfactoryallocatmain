@@ -1,0 +1,11 @@
+cwd: C:\Users\nayak\Desktop\Intership Projects\factoryallocatmain
+sys.executable: -
+module streamlit: False
+module pytest: False
+module pandas: False
+module sklearn: False
+FOUND venv python: C:\Users\nayak\Desktop\Intership Projects\factoryallocatmain\.venv\Scripts\python.exe
+FOUND venv python: C:\Users\nayak\Desktop\Intership Projects\.venv\Scripts\python.exe
+streamlit on PATH (where): 
+pytest on PATH (where): 
+python -m streamlit --version: 

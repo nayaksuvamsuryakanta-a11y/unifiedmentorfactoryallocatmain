@@ -1,0 +1,9 @@
+EXIT 0
+
+Input 10,194 rows -> 9,747 after dedup and IQR fence
+Selected model: Linear Regression (CV R² -0.0041)
+Coverage 100.0%, 2 high-risk
+Reports written to C:\Users\nayak\Desktop\Intership Projects\factoryallocatmain\docs
+Artifacts saved to C:\Users\nayak\Desktop\Intership Projects\factoryallocatmain\artifacts
+
+--- STDERR ---
