@@ -2,7 +2,7 @@
 
 ## Abstract
 
-Leadership attributes long lead times to static factory assignments and suboptimal shipping distances. This study tests that premise directly on the supplied order file: are there factory swaps that measurably shorten delivery without reducing gross profit? The source yields an unambiguous answer on distance but almost none on lead time. Measured centroid distances vary substantially across the five factories, so the distance deltas are real; the historical `(Ship Date - Order Date)` difference, however, is a near-constant ~1,320 days whose variation is dominated by calendar year rather than by any shipment attribute. All three spec-mandated models therefore score negative R² (best -0.0041 five-fold cross-validated), so no model can be used to predict counterfactual lead times. The scenario engine is accordingly assumption-driven: lead change equals measured distance change divided by an assumed freight speed. Under the configured assumptions 15 of 15 products have a shorter route, and the composite ranking surfaces 2 high-risk and 39 medium-risk moves whose capability gaps and prediction uncertainty must be resolved before any transfer.
+Leadership attributes long lead times to static factory assignments and suboptimal shipping distances. This study tests that premise directly on the supplied order file: are there factory swaps that measurably shorten delivery without reducing gross profit? The source yields an unambiguous answer on distance but almost none on lead time. Measured centroid distances vary substantially across the five factories, so the distance deltas are real; the historical `(Ship Date - Order Date)` difference, however, is a near-constant ~1,320 days whose variation is dominated by calendar year rather than by any shipment attribute. All three spec-mandated models therefore score negative R² (best -0.0041 five-fold cross-validated), so no model can be used to predict counterfactual lead times. The scenario engine is accordingly assumption-driven: lead change equals measured distance change divided by an assumed freight speed. Under the configured assumptions 13 of 15 products have a shorter route (15 of 15 receive a recommendation row; products with none keep an explicit retain row), and the composite ranking surfaces 2 high-risk and 39 medium-risk moves whose capability gaps and prediction uncertainty must be resolved before any transfer.
 
 ## 1. Background and problem
 
@@ -205,7 +205,7 @@ Point estimates with 5th-95th percentile intervals from 500 bootstrap resamples 
 | KPI | Point | 5th percentile | 95th percentile |
 |---|---:|---:|---:|
 | Lead Time Reduction (%) | 0.0257 | 0.0203 | 0.0305 |
-| Profit Impact Stability (%) | 86.7 | 73.3 | 100.0 |
+| Profit Impact Stability (%) | 73.3 | 53.3 | 93.3 |
 | Scenario Confidence Score (best-model R²) | -0.0023 | -0.0023 | -0.0023 |
 | Recommendation Coverage (%) | 100.0 | 53.3 | 100.0 |
 
@@ -215,16 +215,16 @@ Monte-Carlo sensitivity over freight speed 400-1,600 km/day and freight cost 0.0
 
 | Speed (km/day) | Freight rate | Lead reduction % | Profit stability % | Coverage % |
 | --- | --- | --- | --- | --- |
-| 1328.747 | 0.16 | 0.016 | 100.0 | 100.0 |
-| 1236.842 | 0.074 | 0.018 | 100.0 | 100.0 |
-| 1313.368 | 0.247 | 0.018 | 100.0 | 100.0 |
-| 940.463 | 0.143 | 0.023 | 100.0 | 100.0 |
-| 1172.638 | 0.256 | 0.019 | 100.0 | 100.0 |
-| 672.686 | 0.189 | 0.035 | 100.0 | 100.0 |
-| 1393.157 | 0.208 | 0.016 | 100.0 | 100.0 |
-| 825.431 | 0.293 | 0.026 | 100.0 | 100.0 |
-| 1334.06 | 0.099 | 0.016 | 100.0 | 100.0 |
-| 452.565 | 0.089 | 0.048 | 100.0 | 100.0 |
+| 1328.747 | 0.16 | 0.016 | 60.0 | 100.0 |
+| 1236.842 | 0.074 | 0.018 | 40.0 | 100.0 |
+| 1313.368 | 0.247 | 0.018 | 80.0 | 100.0 |
+| 940.463 | 0.143 | 0.023 | 60.0 | 100.0 |
+| 1172.638 | 0.256 | 0.019 | 70.0 | 100.0 |
+| 672.686 | 0.189 | 0.035 | 80.0 | 100.0 |
+| 1393.157 | 0.208 | 0.016 | 60.0 | 100.0 |
+| 825.431 | 0.293 | 0.026 | 70.0 | 100.0 |
+| 1334.06 | 0.099 | 0.016 | 50.0 | 100.0 |
+| 452.565 | 0.089 | 0.048 | 40.0 | 100.0 |
 
 ## 8. Limitations
 

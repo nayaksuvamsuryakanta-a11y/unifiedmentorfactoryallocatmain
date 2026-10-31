@@ -233,6 +233,11 @@ def page_recommendations(df, scored, best_model_r2):
                 "carries no usable lead-time signal (see the Models page).")
 
     product, regions, modes, speed, filtered = render_sidebar(df)
+    if filtered.empty:
+        st.warning("No order lines match the selected Region and Ship Mode filters; relax them "
+                   "to see recommendations.")
+        st.stop()
+    scored = score_for(speed, filtered)
 
     st.subheader("KPI header")
     kpi_header(scored, best_model_r2)
@@ -275,7 +280,12 @@ def page_factory_optimizer(df, scored):
     st.markdown("Every factory, its current inbound portfolio and the lead-time reduction it "
                 "could absorb from distance-reducing alternatives.")
 
-    render_sidebar(df)
+    _, _, _, _, filtered = render_sidebar(df)
+    if filtered.empty:
+        st.warning("No order lines match the selected Region and Ship Mode filters; relax them "
+                   "to continue.")
+        st.stop()
+    scored = score_for(st.session_state.opt_slider, filtered)
 
     summary = factory_optimiser_summary(df, scored)
     st.subheader("Factory portfolio and inbound potential")
@@ -307,7 +317,12 @@ def page_what_if(df, scored):
                 "distance delta into a lead-time or cost delta is an **assumption**, not a "
                 "fitted coefficient.")
 
-    render_sidebar(df)
+    _, _, _, _, filtered = render_sidebar(df)
+    if filtered.empty:
+        st.warning("No order lines match the selected Region and Ship Mode filters; relax them "
+                   "to continue.")
+        st.stop()
+    scored = score_for(st.session_state.opt_slider, filtered)
 
     with st.expander("Non-empirical assumptions used below", expanded=False):
         st.markdown("| Assumption | Value |")
@@ -350,7 +365,12 @@ def page_risk_impact(df, scored):
     st.markdown("Risk is a weighted blend of four independent signals. The weights are fixed by "
                 "specification, not tuned.")
 
-    render_sidebar(df)
+    _, _, _, _, filtered = render_sidebar(df)
+    if filtered.empty:
+        st.warning("No order lines match the selected Region and Ship Mode filters; relax them "
+                   "to continue.")
+        st.stop()
+    scored = score_for(st.session_state.opt_slider, filtered)
 
     st.subheader("Risk engine composition")
     for col, (k, w) in zip(st.columns(4), RISK_COMPONENT_WEIGHTS.items()):
@@ -408,6 +428,7 @@ def page_risk_impact(df, scored):
 def page_eda_models(df, scored, best_name, best_model_r2):
     st.title("EDA & Models")
     render_sidebar(df)
+    scored = score_for(st.session_state.opt_slider, df)
 
     with st.expander("Assumptions converting distance into lead time and cost", expanded=False):
         st.markdown(f"- freight_speed_km_day = {Assumptions.freight_speed_km_day}")

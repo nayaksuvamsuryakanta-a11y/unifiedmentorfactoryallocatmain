@@ -13,8 +13,8 @@
 ### Headline numbers
 
 * 9,747 order lines modelled; 313 duplicate rows removed; 134 (1.36%) removed by the 3.0 x IQR fence.
-* 15 of 15 products have a distance-reducing alternative; 10 carry a recommendation.
-* Lead-time reduction 0.0257%, profit stability 86.7%, coverage 100.0%, scenario confidence -0.0023.
+* 13 of 15 products have a distance-reducing alternative; 10 carry a recommendation (the remaining 2 keep an explicit retain row).
+* Lead-time reduction 0.0257%, profit stability 73.3%, coverage 100.0%, scenario confidence -0.0023.
 * Distinct recommended factories in the top 10: 3 (Secret Factory, The Other Factory, Wicked Choccy's).
 * Slow routes flagged: 43; congested region/product pairs: 8.
 

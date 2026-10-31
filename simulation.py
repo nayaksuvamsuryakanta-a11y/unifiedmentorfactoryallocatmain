@@ -61,7 +61,14 @@ def candidate_moves(df, assumptions=Assumptions):
                                          weights=g["units"].clip(lower=1)))
             delta_dist = cand_dist - current_dist
             delta_lead = delta_dist / assumptions.freight_speed_km_day
-            delta_cost = total_units * (delta_dist / 1000.0) * assumptions.freight_cost_per_unit_per_1000km
+            # Net one-time outlay: the destination's qualification cost less the incumbent's
+            # sunk cost. It is the same for every product routed to that factory, so it
+            # varies across candidates independently of delta_distance -- which is what
+            # prevents profit_gain from being a scalar multiple of lead_gain_days.
+            setup_net = (assumptions.setup_freight_cost.get(factory, 0.0)
+                         - assumptions.setup_freight_cost.get(current, 0.0))
+            delta_cost = (total_units * (delta_dist / 1000.0)
+                          * assumptions.freight_cost_per_unit_per_1000km + setup_net)
             rows.append({
                 "product": product, "division": div, "current_factory": current,
                 "candidate_factory": factory, "orders": n, "units": total_units,

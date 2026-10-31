@@ -1,7 +1,7 @@
 {
   "point": {
     "lead_time_reduction_pct": 0.025747126355537,
-    "profit_stability_pct": 86.66666666666667,
+    "profit_stability_pct": 73.33333333333333,
     "scenario_confidence": -0.0023143409029899864,
     "coverage_pct": 100.0
   },
@@ -11,8 +11,8 @@
       0.03054311719474239
     ],
     "profit_stability_pct": [
-      73.33333333333333,
-      100.0
+      53.333333333333336,
+      93.33333333333333
     ],
     "scenario_confidence": [
       -0.0023143409029899864,

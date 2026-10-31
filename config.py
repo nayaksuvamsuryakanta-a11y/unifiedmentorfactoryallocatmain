@@ -159,6 +159,19 @@ class Assumptions:
     or cost delta lives here, and every dashboard page states that these are assumptions."""
     freight_speed_km_day = 900.0
     freight_cost_per_unit_per_1000km = 0.15
+    # One-time destination-specific qualification/retooling outlay incurred when a factory
+    # becomes a new source for a product (line validation, tooling, supplier re-qualification).
+    # It is independent of haul length, which is what keeps the profit objective from being an
+    # exact scalar multiple of the lead-time objective: without a term that varies per
+    # candidate and is uncorrelated with delta_distance, min-max normalisation collapses the
+    # two into one vector and the priority slider becomes an algebraic no-op.
+    setup_freight_cost = {
+        "Lot's O' Nuts": 2.2,
+        "Wicked Choccy's": 1.5,
+        "Sugar Shack": 0.0,
+        "Secret Factory": 2.8,
+        "The Other Factory": 1.9,
+    }
     capability_gap_penalty = 0.20
     capability_transition_multiple = 2.0
     min_orders_for_recommendation = 3
