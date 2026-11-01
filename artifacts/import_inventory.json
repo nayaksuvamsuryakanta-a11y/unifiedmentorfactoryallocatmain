@@ -1,0 +1,1268 @@
+{
+  "root": "C:\\Users\\nayak\\Desktop\\Intership Projects\\factoryallocatmain",
+  "files": {
+    "_boot_test.py": {
+      "imports": {
+        "streamlit.testing.v1": [
+          "AppTest"
+        ]
+      },
+      "stdlib_imports": {
+        "sys": [
+          "sys"
+        ],
+        "time": [
+          "time"
+        ]
+      }
+    },
+    "_tmp_atest.py": {
+      "imports": {
+        "streamlit.testing.v1": [
+          "AppTest"
+        ]
+      },
+      "stdlib_imports": {}
+    },
+    "app.py": {
+      "imports": {
+        "numpy": [
+          "np"
+        ],
+        "pandas": [
+          "pd"
+        ],
+        "plotly.express": [
+          "px"
+        ],
+        "plotly.graph_objects": [
+          "go"
+        ],
+        "streamlit": [
+          "st"
+        ],
+        "config": [
+          "Assumptions",
+          "DEFAULT_TOP_N",
+          "FACTORY_COORDS",
+          "PRODUCT_FACTORY",
+          "RISK_HIGH",
+          "RISK_MEDIUM",
+          "RISK_WEIGHT_DISTANCE_SHIFT",
+          "RISK_WEIGHT_LOW_SUPPORT",
+          "RISK_WEIGHT_NEG_PROFIT",
+          "RISK_WEIGHT_PRED_VARIANCE",
+          "SEED",
+          "_PRODUCT_DIVISION",
+          "resolve_factory"
+        ],
+        "clustering": [
+          "cluster_routes",
+          "congested_region_products"
+        ],
+        "data_prep": [
+          "MIN_VALID_FRACTION",
+          "load_and_audit_safe"
+        ],
+        "models": [
+          "load_model",
+          "train_and_persist"
+        ],
+        "simulation": [
+          "candidate_moves",
+          "compute_kpis",
+          "factory_optimiser_summary",
+          "parse_components",
+          "score_products",
+          "sensitivity",
+          "top_recommendations"
+        ]
+      },
+      "stdlib_imports": {
+        "__future__": [
+          "annotations"
+        ],
+        "functools": [
+          "functools"
+        ],
+        "json": [
+          "json"
+        ],
+        "logging": [
+          "logging"
+        ],
+        "re": [
+          "re"
+        ],
+        "pathlib": [
+          "Path"
+        ]
+      }
+    },
+    "check_bg.py": {
+      "imports": {},
+      "stdlib_imports": {
+        "os": [
+          "os"
+        ],
+        "time": [
+          "time"
+        ]
+      }
+    },
+    "cleanup.py": {
+      "imports": {},
+      "stdlib_imports": {
+        "os": [
+          "os"
+        ]
+      }
+    },
+    "clustering.py": {
+      "imports": {
+        "numpy": [
+          "np"
+        ],
+        "pandas": [
+          "pd"
+        ],
+        "sklearn.cluster": [
+          "KMeans"
+        ],
+        "sklearn.metrics": [
+          "silhouette_score"
+        ],
+        "sklearn.preprocessing": [
+          "StandardScaler"
+        ],
+        "config": [
+          "SEED"
+        ],
+        "data_prep": [
+          "load_and_audit"
+        ]
+      },
+      "stdlib_imports": {}
+    },
+    "config.py": {
+      "imports": {},
+      "stdlib_imports": {
+        "json": [
+          "json"
+        ],
+        "pathlib": [
+          "Path"
+        ]
+      }
+    },
+    "data_prep.py": {
+      "imports": {
+        "numpy": [
+          "np"
+        ],
+        "pandas": [
+          "pd"
+        ],
+        "config": [
+          "Assumptions",
+          "DATA_PATH",
+          "DATE_FORMAT",
+          "DIVISION_FACTORIES",
+          "EARTH_RADIUS_KM",
+          "FACTORY_COORDS",
+          "PRODUCT_FACTORY",
+          "REGION_ORDER",
+          "SEED",
+          "SHIP_MODE_RANK",
+          "STATE_CENTROIDS",
+          "normalize_product_name",
+          "resolve_factory"
+        ]
+      },
+      "stdlib_imports": {
+        "json": [
+          "json"
+        ],
+        "logging": [
+          "logging"
+        ],
+        "re": [
+          "re"
+        ],
+        "pathlib": [
+          "Path"
+        ]
+      }
+    },
+    "diagnostics/recommendation_count_py314.py": {
+      "imports": {
+        "pandas": [
+          "pd"
+        ],
+        "config": [
+          "ARTIFACT_DIR",
+          "Assumptions",
+          "FACTORY_COORDS"
+        ],
+        "simulation": [
+          "score_products"
+        ]
+      },
+      "stdlib_imports": {
+        "__future__": [
+          "annotations"
+        ],
+        "json": [
+          "json"
+        ],
+        "sys": [
+          "sys"
+        ],
+        "pathlib": [
+          "Path"
+        ],
+        "types": [
+          "SimpleNamespace"
+        ]
+      }
+    },
+    "dump_audit.py": {
+      "imports": {
+        "data_prep": [
+          "load_and_audit"
+        ]
+      },
+      "stdlib_imports": {
+        "json": [
+          "json"
+        ]
+      }
+    },
+    "features.py": {
+      "imports": {
+        "sklearn.compose": [
+          "ColumnTransformer"
+        ],
+        "sklearn.impute": [
+          "SimpleImputer"
+        ],
+        "sklearn.pipeline": [
+          "Pipeline"
+        ],
+        "sklearn.preprocessing": [
+          "OneHotEncoder",
+          "StandardScaler"
+        ]
+      },
+      "stdlib_imports": {}
+    },
+    "find_bg.py": {
+      "imports": {},
+      "stdlib_imports": {
+        "os": [
+          "os"
+        ],
+        "re": [
+          "re"
+        ],
+        "sys": [
+          "sys"
+        ]
+      }
+    },
+    "git_status.py": {
+      "imports": {},
+      "stdlib_imports": {
+        "subprocess": [
+          "subprocess"
+        ]
+      }
+    },
+    "inspect_page.py": {
+      "imports": {
+        "streamlit.commands.navigation": [
+          "Page"
+        ]
+      },
+      "stdlib_imports": {
+        "inspect": [
+          "inspect"
+        ],
+        "functools": [
+          "functools"
+        ]
+      }
+    },
+    "legacy/app.py": {
+      "imports": {
+        "matplotlib.pyplot": [
+          "plt"
+        ],
+        "numpy": [
+          "np"
+        ],
+        "pandas": [
+          "pd"
+        ],
+        "streamlit": [
+          "st"
+        ],
+        "config": [
+          "ARTIFACT_DIR",
+          "Assumptions",
+          "FACTORY_COORDS",
+          "PRODUCT_FACTORY"
+        ],
+        "simulation": [
+          "score_products"
+        ]
+      },
+      "stdlib_imports": {
+        "types": [
+          "SimpleNamespace"
+        ],
+        "pathlib": [
+          "Path"
+        ],
+        "json": [
+          "json"
+        ]
+      }
+    },
+    "legacy/clustering.py": {
+      "imports": {
+        "numpy": [
+          "np"
+        ],
+        "pandas": [
+          "pd"
+        ],
+        "sklearn.cluster": [
+          "KMeans"
+        ],
+        "sklearn.metrics": [
+          "silhouette_score"
+        ],
+        "sklearn.preprocessing": [
+          "StandardScaler"
+        ],
+        "config": [
+          "SEED"
+        ]
+      },
+      "stdlib_imports": {}
+    },
+    "legacy/config.py": {
+      "imports": {},
+      "stdlib_imports": {
+        "pathlib": [
+          "Path"
+        ]
+      }
+    },
+    "legacy/data_prep.py": {
+      "imports": {
+        "numpy": [
+          "np"
+        ],
+        "pandas": [
+          "pd"
+        ],
+        "config": [
+          "DATA_PATH",
+          "EARTH_RADIUS_KM",
+          "FACTORY_COORDS",
+          "PRODUCT_FACTORY",
+          "SHIP_MODE_RANK",
+          "STATE_CENTROIDS",
+          "ZIP_CENTROIDS_PATH"
+        ],
+        "pgeocode": [
+          "pgeocode"
+        ]
+      },
+      "stdlib_imports": {
+        "logging": [
+          "logging"
+        ],
+        "re": [
+          "re"
+        ]
+      }
+    },
+    "legacy/diagnostics/recommendation_count_py314.py": {
+      "imports": {
+        "pandas": [
+          "pd"
+        ],
+        "config": [
+          "ARTIFACT_DIR",
+          "Assumptions",
+          "FACTORY_COORDS"
+        ],
+        "simulation": [
+          "score_products"
+        ]
+      },
+      "stdlib_imports": {
+        "__future__": [
+          "annotations"
+        ],
+        "json": [
+          "json"
+        ],
+        "sys": [
+          "sys"
+        ],
+        "pathlib": [
+          "Path"
+        ],
+        "types": [
+          "SimpleNamespace"
+        ]
+      }
+    },
+    "legacy/features.py": {
+      "imports": {
+        "sklearn.compose": [
+          "ColumnTransformer"
+        ],
+        "sklearn.preprocessing": [
+          "OneHotEncoder",
+          "StandardScaler"
+        ],
+        "sklearn.impute": [
+          "SimpleImputer"
+        ],
+        "sklearn.pipeline": [
+          "Pipeline"
+        ]
+      },
+      "stdlib_imports": {}
+    },
+    "legacy/models.py": {
+      "imports": {
+        "numpy": [
+          "np"
+        ],
+        "pandas": [
+          "pd"
+        ],
+        "scipy.stats": [
+          "linregress"
+        ],
+        "sklearn.base": [
+          "clone"
+        ],
+        "sklearn.ensemble": [
+          "GradientBoostingRegressor",
+          "RandomForestRegressor"
+        ],
+        "sklearn.inspection": [
+          "permutation_importance"
+        ],
+        "sklearn.linear_model": [
+          "LinearRegression",
+          "Ridge"
+        ],
+        "sklearn.metrics": [
+          "mean_absolute_error",
+          "mean_squared_error",
+          "r2_score"
+        ],
+        "sklearn.model_selection": [
+          "KFold",
+          "cross_val_score",
+          "cross_validate",
+          "train_test_split"
+        ],
+        "sklearn.pipeline": [
+          "Pipeline"
+        ],
+        "features": [
+          "make_preprocessor"
+        ],
+        "config": [
+          "Assumptions",
+          "SEED"
+        ],
+        "sklearn.preprocessing": [
+          "OneHotEncoder"
+        ],
+        "sklearn.compose": [
+          "ColumnTransformer"
+        ]
+      },
+      "stdlib_imports": {}
+    },
+    "legacy/run_pipeline.py": {
+      "imports": {
+        "numpy": [
+          "np"
+        ],
+        "pandas": [
+          "pd"
+        ],
+        "config": [
+          "ARTIFACT_DIR",
+          "Assumptions",
+          "DATA_PATH",
+          "FACTORY_COORDS",
+          "SHIP_MODE_RANK"
+        ],
+        "data_prep": [
+          "prepare_data"
+        ],
+        "models": [
+          "train_models"
+        ],
+        "clustering": [
+          "cluster_routes",
+          "congested_region_products"
+        ],
+        "simulation": [
+          "compute_kpis",
+          "joint_optimize",
+          "score_products",
+          "sensitivity"
+        ]
+      },
+      "stdlib_imports": {
+        "json": [
+          "json"
+        ],
+        "logging": [
+          "logging"
+        ],
+        "sys": [
+          "sys"
+        ]
+      }
+    },
+    "legacy/simulation.py": {
+      "imports": {
+        "numpy": [
+          "np"
+        ],
+        "pandas": [
+          "pd"
+        ],
+        "config": [
+          "Assumptions",
+          "FACTORY_COORDS",
+          "PRODUCT_FACTORY",
+          "SEED"
+        ],
+        "pulp": [
+          "pulp"
+        ],
+        "scipy.optimize": [
+          "Bounds",
+          "LinearConstraint",
+          "milp"
+        ]
+      },
+      "stdlib_imports": {}
+    },
+    "legacy/tests/test_app.py": {
+      "imports": {
+        "streamlit.testing.v1": [
+          "AppTest"
+        ]
+      },
+      "stdlib_imports": {
+        "pathlib": [
+          "Path"
+        ]
+      }
+    },
+    "legacy/tests/test_pipeline.py": {
+      "imports": {
+        "numpy": [
+          "np"
+        ],
+        "pandas": [
+          "pd"
+        ],
+        "data_prep": [
+          "haversine_km",
+          "prepare_data",
+          "repair_ship_dates",
+          "resolve_customer_centroid"
+        ],
+        "config": [
+          "DATA_PATH",
+          "FACTORY_COORDS",
+          "PRODUCT_FACTORY",
+          "STATE_CENTROIDS"
+        ],
+        "simulation": [
+          "compute_kpis",
+          "joint_optimize",
+          "score_products"
+        ],
+        "models": [
+          "select_model"
+        ],
+        "clustering": [
+          "congested_region_products"
+        ],
+        "pulp": [
+          "pulp"
+        ]
+      },
+      "stdlib_imports": {
+        "builtins": [
+          "builtins"
+        ],
+        "types": [
+          "SimpleNamespace"
+        ]
+      }
+    },
+    "legacy/tests/test_report_formatting.py": {
+      "imports": {},
+      "stdlib_imports": {
+        "os": [
+          "os"
+        ],
+        "re": [
+          "re"
+        ],
+        "pathlib": [
+          "Path"
+        ]
+      }
+    },
+    "list_files.py": {
+      "imports": {},
+      "stdlib_imports": {
+        "os": [
+          "os"
+        ]
+      }
+    },
+    "list_legacy.py": {
+      "imports": {},
+      "stdlib_imports": {
+        "os": [
+          "os"
+        ]
+      }
+    },
+    "models.py": {
+      "imports": {
+        "joblib": [
+          "joblib"
+        ],
+        "numpy": [
+          "np"
+        ],
+        "pandas": [
+          "pd"
+        ],
+        "sklearn.base": [
+          "clone"
+        ],
+        "sklearn.ensemble": [
+          "GradientBoostingRegressor",
+          "RandomForestRegressor"
+        ],
+        "sklearn.inspection": [
+          "permutation_importance"
+        ],
+        "sklearn.linear_model": [
+          "LinearRegression"
+        ],
+        "sklearn.metrics": [
+          "mean_absolute_error",
+          "mean_squared_error",
+          "r2_score"
+        ],
+        "sklearn.model_selection": [
+          "KFold",
+          "cross_validate",
+          "train_test_split"
+        ],
+        "sklearn.pipeline": [
+          "Pipeline"
+        ],
+        "config": [
+          "ARTIFACT_DIR",
+          "SEED"
+        ],
+        "features": [
+          "CATEGORICAL",
+          "NUMERIC",
+          "make_preprocessor"
+        ],
+        "data_prep": [
+          "load_and_audit"
+        ]
+      },
+      "stdlib_imports": {}
+    },
+    "probe.py": {
+      "imports": {},
+      "stdlib_imports": {
+        "os": [
+          "os"
+        ],
+        "glob": [
+          "glob"
+        ],
+        "sys": [
+          "sys"
+        ],
+        "importlib.util": [
+          "importlib"
+        ]
+      }
+    },
+    "probe2.py": {
+      "imports": {},
+      "stdlib_imports": {
+        "os": [
+          "os"
+        ],
+        "glob": [
+          "glob"
+        ],
+        "importlib.util": [
+          "importlib"
+        ]
+      }
+    },
+    "probe3.py": {
+      "imports": {},
+      "stdlib_imports": {
+        "importlib.util": [
+          "importlib"
+        ],
+        "subprocess": [
+          "subprocess"
+        ],
+        "sys": [
+          "sys"
+        ]
+      }
+    },
+    "run_pipeline.py": {
+      "imports": {
+        "numpy": [
+          "np"
+        ],
+        "pandas": [
+          "pd"
+        ],
+        "clustering": [
+          "cluster_routes",
+          "congested_region_products"
+        ],
+        "config": [
+          "ARTIFACT_DIR",
+          "Assumptions",
+          "DIVISION_FACTORIES",
+          "FACTORY_COORDS",
+          "RISK_HIGH",
+          "RISK_MEDIUM",
+          "RISK_WEIGHT_DISTANCE_SHIFT",
+          "RISK_WEIGHT_LOW_SUPPORT",
+          "RISK_WEIGHT_NEG_PROFIT",
+          "RISK_WEIGHT_PRED_VARIANCE",
+          "SEED",
+          "STATE_CENTROIDS"
+        ],
+        "data_prep": [
+          "load_and_audit"
+        ],
+        "models": [
+          "train_and_persist"
+        ],
+        "simulation": [
+          "candidate_moves",
+          "compute_kpis",
+          "factory_optimiser_summary",
+          "score_products",
+          "sensitivity",
+          "top_recommendations"
+        ]
+      },
+      "stdlib_imports": {
+        "json": [
+          "json"
+        ],
+        "logging": [
+          "logging"
+        ],
+        "sys": [
+          "sys"
+        ]
+      }
+    },
+    "run_pipeline_local.py": {
+      "imports": {},
+      "stdlib_imports": {
+        "subprocess": [
+          "subprocess"
+        ],
+        "sys": [
+          "sys"
+        ]
+      }
+    },
+    "run_smoke.py": {
+      "imports": {},
+      "stdlib_imports": {
+        "subprocess": [
+          "subprocess"
+        ],
+        "sys": [
+          "sys"
+        ]
+      }
+    },
+    "scan_api.py": {
+      "imports": {
+        "streamlit": [
+          "streamlit"
+        ]
+      },
+      "stdlib_imports": {
+        "ast": [
+          "ast"
+        ],
+        "inspect": [
+          "inspect"
+        ],
+        "re": [
+          "re"
+        ]
+      }
+    },
+    "scripts/inventory_imports.py": {
+      "imports": {},
+      "stdlib_imports": {
+        "ast": [
+          "ast"
+        ],
+        "json": [
+          "json"
+        ],
+        "sys": [
+          "sys"
+        ],
+        "pathlib": [
+          "Path"
+        ],
+        "importlib.metadata": [
+          "importlib"
+        ]
+      }
+    },
+    "scripts/smoke_test.py": {
+      "imports": {
+        "pandas": [
+          "pd"
+        ],
+        "pytest": [
+          "pytest"
+        ],
+        "config": [
+          "Assumptions",
+          "DEFAULT_TOP_N",
+          "FACTORY_COORDS",
+          "RISK_HIGH",
+          "RISK_MEDIUM",
+          "RISK_WEIGHT_DISTANCE_SHIFT",
+          "RISK_WEIGHT_LOW_SUPPORT",
+          "RISK_WEIGHT_NEG_PROFIT",
+          "RISK_WEIGHT_PRED_VARIANCE",
+          "SEED",
+          "normalize_product_name"
+        ],
+        "data_prep": [
+          "ASSERTIONS",
+          "MIN_VALID_FRACTION",
+          "load_and_audit_safe"
+        ],
+        "models": [
+          "load_model"
+        ],
+        "simulation": [
+          "compute_kpis",
+          "factory_optimiser_summary",
+          "parse_components",
+          "score_products",
+          "top_recommendations"
+        ],
+        "streamlit.testing.v1": [
+          "AppTest"
+        ]
+      },
+      "stdlib_imports": {
+        "__future__": [
+          "annotations"
+        ],
+        "json": [
+          "json"
+        ],
+        "subprocess": [
+          "subprocess"
+        ],
+        "sys": [
+          "sys"
+        ],
+        "pathlib": [
+          "Path"
+        ]
+      }
+    },
+    "show_artifacts.py": {
+      "imports": {
+        "pandas": [
+          "pd"
+        ]
+      },
+      "stdlib_imports": {
+        "json": [
+          "json"
+        ]
+      }
+    },
+    "simulation.py": {
+      "imports": {
+        "numpy": [
+          "np"
+        ],
+        "pandas": [
+          "pd"
+        ],
+        "config": [
+          "Assumptions",
+          "FACTORY_COORDS",
+          "RISK_HIGH",
+          "RISK_MEDIUM",
+          "RISK_WEIGHT_DISTANCE_SHIFT",
+          "RISK_WEIGHT_LOW_SUPPORT",
+          "RISK_WEIGHT_NEG_PROFIT",
+          "RISK_WEIGHT_PRED_VARIANCE",
+          "SEED"
+        ],
+        "data_prep": [
+          "load_and_audit"
+        ],
+        "models": [
+          "train_and_persist"
+        ]
+      },
+      "stdlib_imports": {
+        "json": [
+          "json"
+        ],
+        "logging": [
+          "logging"
+        ]
+      }
+    },
+    "tests/test_app.py": {
+      "imports": {
+        "streamlit.testing.v1": [
+          "AppTest"
+        ]
+      },
+      "stdlib_imports": {
+        "pathlib": [
+          "Path"
+        ]
+      }
+    },
+    "tests/test_pipeline.py": {
+      "imports": {
+        "numpy": [
+          "np"
+        ],
+        "pandas": [
+          "pd"
+        ],
+        "data_prep": [
+          "haversine_km",
+          "prepare_data",
+          "repair_ship_dates",
+          "resolve_customer_centroid"
+        ],
+        "config": [
+          "DATA_PATH",
+          "FACTORY_COORDS",
+          "PRODUCT_FACTORY",
+          "STATE_CENTROIDS"
+        ],
+        "simulation": [
+          "compute_kpis",
+          "joint_optimize",
+          "score_products"
+        ],
+        "models": [
+          "select_model"
+        ],
+        "clustering": [
+          "congested_region_products"
+        ],
+        "pulp": [
+          "pulp"
+        ]
+      },
+      "stdlib_imports": {
+        "builtins": [
+          "builtins"
+        ],
+        "types": [
+          "SimpleNamespace"
+        ]
+      }
+    },
+    "tests/test_report_formatting.py": {
+      "imports": {},
+      "stdlib_imports": {
+        "os": [
+          "os"
+        ],
+        "re": [
+          "re"
+        ],
+        "pathlib": [
+          "Path"
+        ]
+      }
+    },
+    "tmp_inv_check.py": {
+      "imports": {},
+      "stdlib_imports": {
+        "json": [
+          "json"
+        ]
+      }
+    },
+    "verify_rec.py": {
+      "imports": {
+        "pandas": [
+          "pd"
+        ],
+        "config": [
+          "Assumptions"
+        ],
+        "data_prep": [
+          "load_and_audit"
+        ],
+        "simulation": [
+          "score_products",
+          "top_recommendations"
+        ]
+      },
+      "stdlib_imports": {
+        "json": [
+          "json"
+        ]
+      }
+    }
+  },
+  "modules": {
+    "__future__": {
+      "installed_version": null,
+      "is_stdlib": true
+    },
+    "ast": {
+      "installed_version": null,
+      "is_stdlib": true
+    },
+    "builtins": {
+      "installed_version": null,
+      "is_stdlib": true
+    },
+    "clustering": {
+      "installed_version": null,
+      "is_stdlib": false
+    },
+    "config": {
+      "installed_version": null,
+      "is_stdlib": false
+    },
+    "data_prep": {
+      "installed_version": null,
+      "is_stdlib": false
+    },
+    "features": {
+      "installed_version": null,
+      "is_stdlib": false
+    },
+    "functools": {
+      "installed_version": null,
+      "is_stdlib": true
+    },
+    "glob": {
+      "installed_version": null,
+      "is_stdlib": true
+    },
+    "importlib.metadata": {
+      "installed_version": null,
+      "is_stdlib": true
+    },
+    "importlib.util": {
+      "installed_version": null,
+      "is_stdlib": true
+    },
+    "inspect": {
+      "installed_version": null,
+      "is_stdlib": true
+    },
+    "joblib": {
+      "installed_version": "1.6.0",
+      "is_stdlib": false
+    },
+    "json": {
+      "installed_version": "2.0.9",
+      "is_stdlib": true
+    },
+    "logging": {
+      "installed_version": "0.5.1.2",
+      "is_stdlib": true
+    },
+    "matplotlib.pyplot": {
+      "installed_version": "3.11.2",
+      "is_stdlib": false
+    },
+    "models": {
+      "installed_version": null,
+      "is_stdlib": false
+    },
+    "numpy": {
+      "installed_version": "2.5.3",
+      "is_stdlib": false
+    },
+    "os": {
+      "installed_version": null,
+      "is_stdlib": true
+    },
+    "pandas": {
+      "installed_version": "3.0.6",
+      "is_stdlib": false
+    },
+    "pathlib": {
+      "installed_version": null,
+      "is_stdlib": true
+    },
+    "pgeocode": {
+      "installed_version": null,
+      "is_stdlib": false
+    },
+    "plotly.express": {
+      "installed_version": "5.24.1",
+      "is_stdlib": false
+    },
+    "plotly.graph_objects": {
+      "installed_version": "5.24.1",
+      "is_stdlib": false
+    },
+    "pulp": {
+      "installed_version": "4.0.0",
+      "is_stdlib": false
+    },
+    "pytest": {
+      "installed_version": "9.1.1",
+      "is_stdlib": false
+    },
+    "re": {
+      "installed_version": "2.2.1",
+      "is_stdlib": true
+    },
+    "scipy.optimize": {
+      "installed_version": "1.18.1",
+      "is_stdlib": false
+    },
+    "scipy.stats": {
+      "installed_version": "1.18.1",
+      "is_stdlib": false
+    },
+    "simulation": {
+      "installed_version": null,
+      "is_stdlib": false
+    },
+    "sklearn.base": {
+      "installed_version": "1.9.1",
+      "is_stdlib": false
+    },
+    "sklearn.cluster": {
+      "installed_version": "1.9.1",
+      "is_stdlib": false
+    },
+    "sklearn.compose": {
+      "installed_version": "1.9.1",
+      "is_stdlib": false
+    },
+    "sklearn.ensemble": {
+      "installed_version": "1.9.1",
+      "is_stdlib": false
+    },
+    "sklearn.impute": {
+      "installed_version": "1.9.1",
+      "is_stdlib": false
+    },
+    "sklearn.inspection": {
+      "installed_version": "1.9.1",
+      "is_stdlib": false
+    },
+    "sklearn.linear_model": {
+      "installed_version": "1.9.1",
+      "is_stdlib": false
+    },
+    "sklearn.metrics": {
+      "installed_version": "1.9.1",
+      "is_stdlib": false
+    },
+    "sklearn.model_selection": {
+      "installed_version": "1.9.1",
+      "is_stdlib": false
+    },
+    "sklearn.pipeline": {
+      "installed_version": "1.9.1",
+      "is_stdlib": false
+    },
+    "sklearn.preprocessing": {
+      "installed_version": "1.9.1",
+      "is_stdlib": false
+    },
+    "streamlit": {
+      "installed_version": "1.64.0",
+      "is_stdlib": false
+    },
+    "streamlit.commands.navigation": {
+      "installed_version": "1.64.0",
+      "is_stdlib": false
+    },
+    "streamlit.testing.v1": {
+      "installed_version": "1.64.0",
+      "is_stdlib": false
+    },
+    "subprocess": {
+      "installed_version": null,
+      "is_stdlib": true
+    },
+    "sys": {
+      "installed_version": null,
+      "is_stdlib": true
+    },
+    "time": {
+      "installed_version": null,
+      "is_stdlib": true
+    },
+    "types": {
+      "installed_version": null,
+      "is_stdlib": true
+    }
+  },
+  "counts": {
+    "files_scanned": 45,
+    "third_party_modules": 31,
+    "stdlib_modules": 17
+  }
+}

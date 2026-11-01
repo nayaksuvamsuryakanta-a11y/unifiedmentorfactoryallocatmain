@@ -78,6 +78,10 @@ def candidate_moves(df, assumptions=Assumptions):
                 "new_lead_days": baseline_lead + delta_lead, "delta_cost": delta_cost,
                 "profit_impact": -delta_cost, "new_profit": base_profit - delta_cost,
                 "capability_gap": factory not in division_factories,
+                # Every lead-time delta in this engine is assumption-driven, not
+                # model-forecast; the label names the assumption set that produced it.
+                "gain_basis": "assumption:A1",
+                "assumption_version": assumptions.assumption_version(),
             })
     return pd.DataFrame(rows)
 
@@ -165,6 +169,10 @@ def score_products(df, assumptions=Assumptions, speed_weight=None,
             "new_lead_days": float(np.average(g["lead_time_days"], weights=units)),
             "delta_cost": 0.0, "profit_impact": 0.0,
             "new_profit": float(g["gross_profit"].sum()), "capability_gap": False,
+            # Retain rows carry no delta, but the decision to retain is still an A1
+            # outcome: the product has no distance-reducing alternative under A1.
+            "gain_basis": "assumption:A1:retain",
+            "assumption_version": assumptions.assumption_version(),
         })
     if retained:
         moves = pd.concat([moves, pd.DataFrame(retained)], ignore_index=True)

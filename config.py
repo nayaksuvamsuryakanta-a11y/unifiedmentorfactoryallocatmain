@@ -1,4 +1,5 @@
 """Project configuration, reference tables and non-empirical scenario assumptions."""
+import hashlib
 import json
 from pathlib import Path
 
@@ -183,6 +184,23 @@ class Assumptions:
     risk_weight = 0.30
     iqr_factor = 3.0
     kpi_bootstrap_iterations = 500
+
+    @classmethod
+    def assumption_version(cls):
+        """Stable fingerprint of the non-empirical assumption set.
+
+        Every scenario-derived quantity carries this hash (see
+        `simulation.assumption_version`) so a drift gate can detect a silent change to
+        freight speed, rate or the destination qualification outlay without re-reading
+        every artifact. Only the values that convert a distance delta into a lead-time
+        or cost delta are included; ranking and risk weights are separate because they
+        are driven by the live priority slider rather than by the assumption set.
+        """
+        payload = (cls.freight_speed_km_day, cls.freight_cost_per_unit_per_1000km,
+                   cls.capability_gap_penalty, cls.capability_transition_multiple,
+                   cls.min_orders_for_recommendation, cls.min_material_days,
+                   cls.capacity_multiplier, tuple(sorted(cls.setup_freight_cost.items())))
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
 # Risk engine weights (Phase 4.4) -- fixed by spec, not tuned.

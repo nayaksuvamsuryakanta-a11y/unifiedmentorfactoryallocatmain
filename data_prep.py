@@ -52,6 +52,19 @@ def _to_datetime(series, name):
     return parsed
 
 
+def _calendar_days(start, end):
+    """Day difference between two date series, invariant to time zone.
+
+    The real source is naive, so this is a no-op there. When the columns carry an offset
+    (a defensive input, or a test fixture), converting both endpoints to UTC midnight first
+    stops a DST transition from stealing or gaining a day in the subtraction.
+    """
+    if start.dt.tz is not None:
+        start = start.dt.tz_convert("UTC").dt.normalize()
+        end = end.dt.tz_convert("UTC").dt.normalize()
+    return (end - start).dt.days
+
+
 def load_and_audit(path=DATA_PATH):
     """Load, clean and enrich the source file. Returns (frame, audit_dict).
 
@@ -111,7 +124,10 @@ def load_and_audit(path=DATA_PATH):
     df["order_id"] = df["order_id"].astype(str)
 
     # --- Hard assertions on the raw lead time --------------------------------
-    lead = (df["ship_date"] - df["order_date"]).dt.days
+    # Dates carry no time-of-day. For naive data the conversion below is a no-op;
+    # when the columns carry an offset, collapsing both endpoints to UTC midnight
+    # first keeps a DST transition from shifting a calendar day.
+    lead = _calendar_days(df["order_date"], df["ship_date"])
     audit["lead_min"] = int(lead.min())
     audit["lead_mean"] = float(lead.mean())
     audit["lead_max"] = int(lead.max())
@@ -128,16 +144,18 @@ def load_and_audit(path=DATA_PATH):
     if failed:
         raise ValueError(f"Lead-time assertions failed: {failed}")
 
-    df["lead_time_days"] = ((df["ship_date"] - df["order_date"]).dt.days).astype("Int64")
+    df["lead_time_days"] = lead.astype("Int64")
+
+    # --- Numerics -----------------------------------------------------------
+    # Coerce before deriving cost, so a non-numeric financial field cannot make the
+    # subtraction itself raise instead of being diagnosed as a parse error.
+    for col in NUMERIC:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
     # --- Cost imputation ----------------------------------------------------
     missing_cost = int(df["cost"].isna().sum())
     df["cost"] = df["cost"].fillna(df["sales"] - df["gross_profit"])
     audit["cost_imputed"] = missing_cost
-
-    # --- Numerics -----------------------------------------------------------
-    for col in NUMERIC:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
 
     # --- Categorical normalisation ------------------------------------------
     df["product_name"] = df["product_name"].astype(str).map(normalize_product_name)
