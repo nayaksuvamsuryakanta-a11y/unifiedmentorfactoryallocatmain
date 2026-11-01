@@ -1,24 +1,16 @@
 import numpy as np
 import pandas as pd
-from data_prep import repair_ship_dates, haversine_km, resolve_customer_centroid, prepare_data
+from data_prep import load_and_audit, haversine_km
 from config import STATE_CENTROIDS, FACTORY_COORDS, PRODUCT_FACTORY, DATA_PATH
 from simulation import compute_kpis, joint_optimize, score_products
 from models import select_model
 from clustering import congested_region_products
 
-def test_date_repair_is_nonnegative_small_and_mode_ordered():
-    orders=pd.Series(pd.to_datetime(["2024-01-01"]*4))
-    ships=pd.Series(pd.to_datetime(["1900-01-01","1900-01-02","1900-01-05","1900-01-10"]))
-    fixed=repair_ship_dates(orders,ships); days=(fixed-orders).dt.days
-    assert days.min()>=0 and days.max()<30
-    assert list(days)==sorted(days) and days[0]<days[1]<days[2]<days[3]
-
-def test_supplied_data_date_repair_is_valid_for_every_retained_row():
-    frame=prepare_data(DATA_PATH)
+def test_supplied_data_audit_preserves_raw_lead_times():
+    frame, audit = load_and_audit(DATA_PATH)
     assert frame.lead_time_days.ge(0).all()
-    assert frame.lead_time_days.lt(30).all()
-    means=frame.groupby("ship_mode").lead_time_days.mean()
-    assert means["Same Day"]<means["First Class"]<means["Second Class"]<means["Standard Class"]
+    assert frame.lead_time_days.min() >= 900
+    assert audit["rows_final"] == len(frame)
 
 def test_haversine():
     assert haversine_km(0,0,0,0)==0
@@ -31,10 +23,6 @@ def test_kpi_coverage_and_empty():
 
 def test_state_fallback_table_available():
     assert STATE_CENTROIDS["Ontario"]==(51.253775,-85.323214)
-
-def test_unknown_postal_uses_state_centroid():
-    point,precision=resolve_customer_centroid("ZZZ-NOT-A-POSTAL-CODE","Ontario",{})
-    assert point==STATE_CENTROIDS["Ontario"] and precision=="state"
 
 def test_joint_optimizer_capacity_and_one_factory_per_product():
     products=list(PRODUCT_FACTORY)[:2]

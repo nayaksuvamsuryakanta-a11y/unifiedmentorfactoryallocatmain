@@ -13,7 +13,7 @@ print("[probe] run took %.1fs" % (time.time() - t0), flush=True)
 exc = at.exception
 print("[probe] exception:", exc, flush=True)
 if not exc:
-    print("[probe] pages:", sorted(at.page_names), flush=True)
+    print("[probe] main elements:", len(at.main), flush=True)
     side = at.sidebar
     print("[probe] sidebar selectbox:", len(side.selectbox), flush=True)
     print("[probe] sidebar multiselect:", len(side.multiselect), flush=True)
