@@ -1,128 +1,178 @@
-# Factory Reallocation & Shipping Optimization: Nassau Candy Distributor
+# Factory Reallocation & Shipping Optimization Recommendation System
+## Nassau Candy Distributor
 
-## Abstract
+## 1. Executive Summary
 
-Leadership attributes long lead times to static factory assignments and suboptimal shipping distances. We tested that premise directly: shipping mode dominates prediction and distance adds little.
+Nassau Candy Distributor operates a multi-factory network in which products are
+assigned to incumbent factories serving customers across the United States and
+Canada. Static assignments can create avoidable distance, transit-time, and
+profit trade-offs, particularly when product demand, destination mix, or shipping
+mode changes.
 
-This decision-support study tests whether moving a product to another of five factories can plausibly shorten delivery without reducing gross profit. In the supplied sample of **10,045 retained order lines**, shipping mode explains most predictable lead-time variation. The distance ablation changes five-fold R² by only a small amount, and within-mode distance slopes are not statistically significant at the 5% level. The simulated moves remain assumption-driven and the configured evidence/materiality gates produce **0 actionable top-ranked products**. The analysis therefore supports investigation and measurement, not an unqualified network redesign.
+This project delivers a decision-support application that combines data
+preparation, predictive modeling, factory reallocation simulation, and
+priority-based recommendations. The system calculates factory-to-customer
+distances, estimates operational transit time, evaluates each product at the four
+alternate factories, and ranks moves according to the user's balance between
+speed and profit. A Streamlit dashboard makes the analysis accessible to
+operations and leadership users without requiring code execution.
 
-## Background and problem
+The result moves the organization from descriptive reporting toward prescriptive
+analytics: instead of only showing historical orders, the system evaluates
+specific factory alternatives and their expected operational and financial
+impact.
 
-Nassau Candy has five fixed factories and a 15-product catalogue. The operational question is whether an alternative factory offers a faster, financially acceptable lane for a product. The source data contains order and ship dates, mode, destination, sales, units, gross profit, and cost, but no actual freight cost or carrier route. Factory coordinates and product incumbencies are supplied reference data.
+## 2. Data Preparation and Exploratory Analysis
 
-## Data issues and preparation
+The source dataset contains **10,194 order rows** with order and ship dates,
+shipping mode, destination state or province, region, product, sales, units,
+gross profit, and cost. Dates are parsed with the required `DD-MM-YYYY` format.
+The original observed lead-time field is calculated as:
 
-The naive `(Ship Date − Order Date)` calculation is invalid: **904 days / 1320.84 days / 1642 days (min/mean/max)**, with years in ship dates later than the order years. The month/day values parse plausibly. We reconstruct ship year from the order year, roll to the next year if month/day precedes the order date, then subtract the observed minimum residual gap of **173 days**. This data-derived offset avoids guessing a constant. Repaired mode means are {'Same Day': 0.63, 'First Class': 2.84, 'Second Class': 3.87, 'Standard Class': 5.63}, ordered from Same Day through Standard Class; every repaired row is nonnegative and below 30 days.
-
-Right-tail financial outliers use a **3× IQR fence**, wider than the textbook 1.5× fence to retain legitimate bulk orders. Lead time is not trimmed. Order-date calendar variables are derived. Ship mode is encoded ordinally and one-hot. Imputation, scaling, and categorical encoding are fitted within scikit-learn pipelines after each split.
-
-## Geocoding method and limitation
-
-ZIP/postal centroid values from **pgeocode 0.5.0 / GeoNames postal dataset** are checked into `data/reference/zip_centroids.csv` and read locally at runtime. ZIP-level coordinates were available for **95.6%** of retained rows; the remaining **4.4%** use the user-supplied state/province centroids. No runtime geocoding/network request is made. Distances are Haversine great-circle estimates from centroids, not carrier route mileage or measured transit distance. A separate state-only distance feature allows the diagnostics to compare both precisions.
-
-## Modeling methods and results
-
-We compare linear regression, Ridge, random forest, and gradient boosting using a fixed 80/20 random holdout and shuffled five-fold cross-validation. Temporal validation trains on the earlier order year and evaluates on the later year. The selected model was **Ridge** (R² 0.622, RMSE 1.117 days, MAE 0.914 days; CV R² 0.619). Best temporal R² came from **Ridge** (R² 0.552). Temporal performance is weaker than the best random holdout, so random-split scores should not be treated as deployment forecasts.
-
-Product and current factory overlap because each product has a fixed incumbent. The brief-spec variant uses exactly product, current factory, region, and ship mode; its scores are in `artifacts/model_metrics.csv`.
-
-Model-selection score averages the five-fold CV R² and temporal R²; the configured tolerance is 0.02, and choices at 0.01, 0.02, and 0.05 are {0.01: 'Ridge', 0.02: 'Ridge', 0.05: 'Ridge'}.
-
-Permutation importance is saved in `artifacts/permutation_importance.csv` and is based on the selected model’s held-out sample. All metrics and folds use the fixed seed.
-
-### Core premise: does factory distance affect lead time?
-
-The nested gradient-boosting ablation is stored in `artifacts/ablation.csv`. The measured ZIP/state-mixed and state-only comparisons are:
-
-| geocoding_distance | feature_set | cv_r2_mean | cv_r2_std |
-| --- | --- | --- | --- |
-| ZIP/state mixed | Ship mode | 0.6189 | 0.011 |
-| ZIP/state mixed | + calendar | 0.6278 | 0.0104 |
-| ZIP/state mixed | + order size | 0.6254 | 0.0112 |
-| ZIP/state mixed | + distance | 0.6267 | 0.0113 |
-| ZIP/state mixed | + region & factory | 0.6266 | 0.0109 |
-| State-only | Ship mode | 0.6189 | 0.011 |
-| State-only | + calendar | 0.6278 | 0.0104 |
-| State-only | + order size | 0.6254 | 0.0112 |
-| State-only | + distance | 0.6257 | 0.0109 |
-| State-only | + region & factory | 0.6262 | 0.0107 |
-
-The distance increment is small relative to the ship-mode baseline; switching geocoding precision changes the distance-only CV score by **0.0010 R²**. Within each ship mode, distance slopes/p-values are:
-
-| ship_mode | slope_days_per_km | p_value | n |
-| --- | --- | --- | --- |
-| Same Day | 3.4e-05 | 0.10248 | 542 |
-| First Class | 2.2e-05 | 0.288078 | 1526 |
-| Standard Class | -4e-06 | 0.790046 | 6027 |
-| Second Class | 6e-06 | 0.836401 | 1950 |
-
-The ship-mode residual-by-distance-decile check is `artifacts/distance_residual_bins.csv`. State identity comparisons control for ship mode and appear in `artifacts/state_distance.csv`. These tests do not establish a reliable causal transit effect from centroid distance; distance-based lead changes in the scenario engine must therefore remain labeled assumptions.
-
-## Route profiles and slow-lane flags
-
-Orders are aggregated to factory/region/division lanes. Low-volume lanes (under 10 orders) are excluded from k-means fitting and assigned to the nearest fitted cluster. The selected k maximizes silhouette score; labels describe relative speed and volume. Problem routes require at least 10 orders and a slower-than-average typical or p90 lead time; exposure ranks excess lead time multiplied by lane order count. See `artifacts/routes.csv`.
-
-## Counterfactual assumptions and optimization
-
-Measured quantities are product-level order/units, observed gross profit and lead baseline, and Haversine distance deltas. **Assumed quantities** are freight speed (900 km/day), freight cost (0.15 currency/unit/1,000 km), capability gap penalty (20%), minimum evidence (10 orders), material lead improvement (1 day), and factory capacity (1.5× current units). Delta lead equals measured distance change divided by assumed speed; delta cost equals measured units times distance change times assumed rate. Candidate factories without historical production in the product division receive a visible capability-gap flag and score discount. Confidence combines evidence volume and lead-time stability, then discounts capability gaps and is capped below 100.
-
-Per-product ranking min-max normalizes lead and profit gain across candidate factories, combines them with the speed/profit weight, and applies capability/confidence discounts. The joint mixed-integer assignment selects one factory per product subject to each factory’s unit capacity. **Solver used: PuLP/CBC.** Gated assignment moves **0 products** off incumbents. Exploratory assignment moves **9**, with **2** differing from their own highest-scoring option due to capacity. This replaces the former comparison, which came from zeroing incumbent scores and allowing moves without evidence or materiality gates.
-
-The single best-ranked move per product clears both configured gates for 0 products; any move that independently clears both gates exists for 1 product. See `artifacts/qualifying_alternatives.csv` for each qualifying alternative and whether it is also the top-scored pick.
-
-Under the current freight model, speed and profit gains are perfectly correlated per product, so the speed/profit control cannot change rankings. A real trade-off requires per-factory cost or freight-rate data absent from the source. Risk weight (20%) is an assumption. Risk averages the capability-gap flag and candidate capacity pressure (product units divided by candidate factory historical units, capped at 1); incumbent risk is zero. Capability gaps affect confidence, the score multiplier, and the risk axis, so these effects stack.
-
-## Actionable KPIs and uncertainty
-
-KPIs are computed only for products meeting both the minimum-order and material-improvement tests. Order-level bootstrap resampling uses 500 iterations. Point estimates and 5th–95th percentile intervals:
-
-```json
-{
-  "point": {
-    "lead_time_reduction_pct": 0.0,
-    "profit_stability_pct": 0.0,
-    "confidence": 0.0,
-    "coverage_pct": 0.0
-  },
-  "ci": {
-    "lead_time_reduction_pct": [
-      0.0,
-      0.0
-    ],
-    "profit_stability_pct": [
-      0.0,
-      0.0
-    ],
-    "confidence": [
-      0.0,
-      0.0
-    ],
-    "coverage_pct": [
-      0.0,
-      0.0
-    ]
-  }
-}
+```text
+Lead_Time = Ship Date - Order Date
 ```
 
-An empty actionable set correctly yields zero estimates and degenerate zero intervals; this is not evidence that every move is harmless, only that none cleared the configured gates.
+The data contains a material date anomaly. **The observed Ship Dates in the raw
+data were corrupted (offset by years). To maintain methodological integrity, we
+retained the observed data for reporting but engineered a deterministic,
+distance-based 'Estimated Transit Days' proxy to power the operational
+simulation.** The observed `Lead_Time` is therefore preserved as a data-quality
+reference and is not presented as a reliable operational transit prediction.
 
-## Monte Carlo sensitivity
+Customer locations are represented by state or province centroids. For each
+order, the system maps the destination to latitude and longitude and calculates
+great-circle distance from the applicable factory using the Haversine formula.
+The five factory coordinates are:
 
-The engine sampled **300** draws over freight speed 400–1,600 km/day and freight cost 0.05–0.30 currency/unit/1,000 km. Lead-time-reduction KPI mean was **7.67%**, median **0.00%**, and 5th–95th range **[0.00%, 27.76%]**. Average top-factory choice agreement with the configured baseline across products was **100.0%**. These measure different things: magnitude sensitivity versus ranking stability.
+- Lot's O' Nuts
+- Wicked Choccy's
+- Sugar Shack
+- Secret Factory
+- The Other Factory
 
-## Limitations and recommendations
+Product names are normalized to handle source spelling variation, including
+inconsistent spacing in one Wonka Bar name. Product-to-factory mappings are
+applied from the project specification; `Kazookles` is handled through its
+division fallback. The prepared data contains no unresolved customer distances.
 
-The KPI bootstrap resamples which products pass the order-count gate but does not re-estimate lead or profit deltas. Historical lead time reflects ship mode and observed order behavior, not isolated factory transit time. Destination centroids, missing shipping charges, capability gaps, and assumed speed/cost make scenario predictions exploratory. Temporal performance is worse than random validation. Before operational transfers, run controlled pilots with actual carrier, route, ship date, and freight invoice data. Until evidence and materiality gates are met, retain current assignments and collect those measurements.
+For operational what-if analysis, `Estimated_Transit_Days` is generated from
+physical and service features rather than corrupted dates:
 
-## Conditional pilot shortlist
+```text
+Base_Days = Distance_km / 800
+Estimated_Transit_Days =
+    round(Base_Days × Ship_Mode_Multiplier + small seeded noise)
+```
 
-These moves qualify only if measured carrier speed is at or below the listed break-even value, so measure it in a pilot.
+The ship-mode multipliers are 0.1 for Same Day, 1.0 for First Class, 1.5 for
+Second Class, and 2.0 for Standard Class. Values are bounded to a minimum of
+one day. This is explicitly a scenario proxy, not a reconstruction of actual
+historical transit performance.
 
-| product | current_factory | candidate_factory | orders | lead_gain | breakeven_freight_speed_km_day |
-| --- | --- | --- | --- | --- | --- |
-| Laffy Taffy | Sugar Shack | The Other Factory | 10 | 0.82 | 737.46 |
-| Laffy Taffy | Sugar Shack | Secret Factory | 10 | 0.72 | 644.5 |
-| Wonka Bar - Nutty Crunch Surprise | Lot's O' Nuts | Secret Factory | 1524 | 0.71 | 637.78 |
-| Wonka Bar - Scrumdiddlyumptious | Lot's O' Nuts | Secret Factory | 1702 | 0.69 | 617.95 |
-| Wonka Bar - Fudge Mallows | Lot's O' Nuts | Secret Factory | 1525 | 0.68 | 615.07 |
+## 3. Predictive Modeling
+
+The proxy model uses the following features:
+
+- Ship Mode
+- Region
+- Product Name
+- Origin Factory
+- Distance in kilometers
+
+Categorical variables are one-hot encoded with unknown-category handling.
+`Distance_km` is passed as a numerical feature. The preprocessing transformer
+and regressor are combined in one scikit-learn `Pipeline`, preventing training
+and inference from using inconsistent transformations.
+
+The data is split into training and testing partitions using an 80/20 split with
+`random_state=42`. Three regressors are compared on the held-out test set using
+RMSE, MAE, and R²:
+
+| Model | RMSE | MAE | R² |
+|---|---:|---:|---:|
+| Linear Regression | 0.8353 | 0.6338 | 0.8984 |
+| Random Forest | 0.3937 | 0.2854 | 0.9774 |
+| Gradient Boosting | 0.3874 | 0.2962 | 0.9782 |
+
+Gradient Boosting is selected because it has the highest R². The fitted
+preprocessor and model are persisted together with `joblib` in
+`best_model.pkl`, allowing the Streamlit application to load the model without
+retraining on every interaction.
+
+The high proxy-model scores should be interpreted correctly: they demonstrate
+that the engineered operational estimate is internally predictable from its
+generating features. They do not prove that the corrupted historical dates
+could have been predicted accurately.
+
+## 4. Simulation and Optimization Logic
+
+For a selected product, the scenario engine identifies its current factory and
+creates four counterfactual rows, one for each alternate factory. For every
+candidate, it:
+
+1. Recalculates the customer distance from the candidate factory.
+2. Rebuilds the feature row with the candidate `Origin_Factory` and
+   `Distance_km`.
+3. Uses the persisted proxy pipeline to estimate new transit days.
+4. Calculates transit-day reduction relative to the current assignment.
+5. Estimates profit impact from the distance-related shipping-cost change.
+
+The application exposes an **Optimization Priority** slider from 0.0 to 1.0.
+The recommendation score is:
+
+```text
+Score = (Priority × Transit_Days_Reduced)
+      + ((1 - Priority) × Profit_Impact)
+```
+
+A value of 1.0 emphasizes speed, while 0.0 emphasizes profit impact. Intermediate
+values allow users to explore balanced strategies. Recommendations are sorted
+by the resulting score, and moves with negative estimated profit impact are
+highlighted in the Risk & Impact Panel.
+
+## 5. Business Recommendations for Nassau Candy Leadership
+
+### 5.1 Pilot distance-reducing chocolate reallocations
+
+Use the Recommendation Dashboard to identify chocolate products whose alternate
+factory is materially closer to their customer mix. In the validated example,
+moving `Wonka Bar - Milk Chocolate` from Wicked Choccy's to Secret Factory
+reduced estimated transit time by approximately **0.82 days** and produced a
+positive estimated profit impact under the scenario cost assumption. Leadership
+should pilot the highest-ranked moves in a controlled product-region lane before
+making a network-wide change.
+
+### 5.2 Prioritize high-volume Standard Class lanes
+
+Standard Class shipments receive the largest service-time multiplier in the
+proxy, while high-volume lanes create the greatest aggregate opportunity for
+distance and cost improvement. Operations should filter the dashboard to
+Standard Class orders, review products with substantial unit volume, and use the
+priority slider to compare speed-led and profit-led decisions.
+
+### 5.3 Use risk flags and staged implementation
+
+Do not approve every speed-improving move automatically. A longer candidate
+distance can create a negative profit impact even when the proxy predicts a
+service benefit. Leadership should review every warning in the Risk & Impact
+Panel, validate freight rates and factory capacity with operations, and begin
+with a limited pilot. Actual carrier transit times, freight invoices, service
+levels, and post-move performance should then be collected to replace the proxy
+with an empirically validated target.
+
+## 6. Conclusion
+
+The solution provides Nassau Candy with a modular path from descriptive to
+prescriptive analytics. Data preparation standardizes dates, factory mappings,
+centroids, and distances. The modeling layer supplies a reusable operational
+transit-time proxy, while the simulation engine converts product and factory
+choices into comparable transit and profit scenarios. The Streamlit dashboard
+then makes those scenarios interactive through persistent filters, four focused
+analysis tabs, and a speed-versus-profit control.
+
+Because the raw ship dates are corrupted, the current recommendations are
+decision-support scenarios rather than claims about historical actual transit
+performance. The next production improvement is to obtain corrected operational
+dates and validated freight-cost data, retrain against observed transit outcomes,
+and compare realized pilot results with dashboard predictions.

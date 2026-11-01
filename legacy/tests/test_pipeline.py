@@ -1,10 +1,10 @@
 import numpy as np
 import pandas as pd
-from data_prep import repair_ship_dates, haversine_km, resolve_customer_centroid, prepare_data
+from legacy.data_prep import repair_ship_dates, haversine_km, resolve_customer_centroid, prepare_data
 from config import STATE_CENTROIDS, FACTORY_COORDS, PRODUCT_FACTORY, DATA_PATH
-from simulation import compute_kpis, joint_optimize, score_products
-from models import select_model
-from clustering import congested_region_products
+from legacy.simulation import compute_kpis, joint_optimize, score_products
+from legacy.models import select_model
+from legacy.clustering import congested_region_products
 
 def test_date_repair_is_nonnegative_small_and_mode_ordered():
     orders=pd.Series(pd.to_datetime(["2024-01-01"]*4))
