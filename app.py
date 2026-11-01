@@ -121,11 +121,25 @@ def dark_template(fig):
     return fig
 
 
+def render_assumption_badge():
+    """Every counterfactual in this app is assumption driven, not model forecast.
+
+    The label names the assumption set; the hash is over its numeric values, so a change to
+    freight speed, freight rate or the capability-gap penalty changes the hash and is visible
+    on every page.
+    """
+    st.badge("assumption:A1", icon="🧪")
+    st.caption(f"Lead-time and cost deltas come from `assumption:A1` "
+               f"(version `{Assumptions.assumption_version()[:16]}…`). "
+               "The predictive model is not used for counterfactuals: its R² is negative.")
+
+
 def render_sidebar(df):
     """Always-visible sidebar. The four controls are session-state keyed, so a change on any
     page is reflected everywhere and survives page navigation."""
     with st.sidebar:
         st.header("🎛 Optimization controls", divider=True)
+        render_assumption_badge()
 
         products = ["All"] + sorted(df["product_name"].unique().tolist())
         st.selectbox("Product selector", products, index=0, key="sel_product")
@@ -252,11 +266,12 @@ def page_recommendations(df, scored, best_model_r2):
     display = recs[[
         "product", "current_factory", "candidate_factory", "orders", "units",
         "lead_gain_days", "delta_distance_km", "profit_impact", "risk", "risk_level",
-        "confidence", "score",
+        "confidence", "score", "gain_basis", "assumption_version",
     ]].copy()
     for col in ["lead_gain_days", "profit_impact", "risk", "score"]:
         display[col] = display[col].round(3)
     display["delta_distance_km"] = display["delta_distance_km"].round(1)
+    display["assumption_version"] = display["assumption_version"].str.slice(0, 16)
     st.dataframe(display, hide_index=True,
                  column_config={
                      "orders": st.column_config.Column("Order count"),
@@ -264,6 +279,12 @@ def page_recommendations(df, scored, best_model_r2):
                      "risk_level": st.column_config.Column(
                          "Risk level",
                          help="High > 0.50, Medium > 0.25, Low otherwise"),
+                     "gain_basis": st.column_config.Column(
+                         "Provenance",
+                         help="The assumption set that produced every lead-time delta"),
+                     "assumption_version": st.column_config.Column(
+                         "Assumption version",
+                         help="sha256 of the assumption values that produced these deltas"),
                  })
 
     csv = recs.to_csv(index=False).encode()
@@ -682,6 +703,12 @@ def main():
 
     with st.spinner("Loading the predictive model..."):
         best_model, best_name = load_best_model(df)
+
+    # The model is cache_resource'd, so a warm rerun reuses it. Counting re-renders lets the
+    # dashboard prove that a page refresh is not a retrain.
+    st.session_state.setdefault("warm_reruns", 0)
+    st.session_state.warm_reruns += 1
+    st.caption(f"Warm reruns without retraining: {st.session_state.warm_reruns}")
 
     with st.spinner("Scoring alternative factories..."):
         scored = score_for(0.5, df)
